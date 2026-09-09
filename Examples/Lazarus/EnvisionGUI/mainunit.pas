@@ -62,7 +62,7 @@ type
     procedure SetItemIndex(AValue: integer);
     procedure SetItems(AValue: TStrings);
     procedure SetText(AValue: string);
-    // gets the left and top reltive to the top form
+    // gets the left and top reltive to the top most form
     function getLocation():TRect;
   protected
     procedure SetColor(Value: TColor); override;
@@ -383,7 +383,7 @@ begin
       if LowerCase(ModelEdit1.Text).Contains('flux') then begin
         flux := TQNNFlux.load(AppPath+MODELS_DIR+'/'+modeledit1.Text);
         params.model_name := flux.model_name;
-        prog.max:= 27 + params.num_steps*(5 + 20 + 2) + 16+100;  // text_encode_steps + steps*transformer_blocks + ve_decoder_steps
+        prog.max:= 27 + params.num_steps*(5 + 20 + 2)*(1+ord((not flux.is_distilled) or (params.guidance<>1))) + 17;  // text_encode_steps + steps*transformer_blocks + ve_decoder_steps
         flux.use_mmap:=true;
         img := flux.generate(memoPrompt.Text, memoNegPrompt.Text, params, OnPreviewCallback);
       end;
@@ -463,7 +463,7 @@ end;
 procedure THSEdit.FOnBtnPaint(Sender: TObject);
 var ts:TTextStyle;
 begin
-  FBtn.Canvas.Pen.Color:=$c0c0c0;
+  FBtn.Canvas.Pen.Color:=$808080;
   FBtn.Canvas.Pen.Cosmetic:=false;
   FBtn.Canvas.Pen.Width:=1;
   if FBtn.MouseInClient then
@@ -576,10 +576,15 @@ begin
   if not Visible then exit;
   FList.Parent := TWinControl(GetTopParent);
   R := getLocation();
+  // check if the list top fits in the top most form
+  if R.Bottom + FList.Height>FList.parent.ClientRect.Bottom then
+    FList.Top:=  FEdit.Top - FList.height + R.Top -1
+  else
+    FList.Top:=  FEdit.Top + FEdit.height + R.Top;
   FList.Left:= FEdit.Left  + R.Left;
-  FList.Top:=  FEdit.Top + FEdit.height + R.Top;
 
   Flist.Width  := FEdit.Width;
+  if FEdit.CanFocus then FEdit.SetFocus;
 end;
 
 function THSEdit.GetText: string;
@@ -611,14 +616,15 @@ function THSEdit.getLocation(): TRect;
 var control:TWinControl;
 begin
   result := Default(TRect);
-  result.Width  :=Width;
-  result.Height :=Height;
   control:=Self;
-  while control.parent<>nil do begin
+  //while control.parent<>nil do begin
+  while assigned(control) and not control.InheritsFrom(TCustomForm) do begin
     result.Left := result.Left + control.left;
     result.Top := result.Top + control.Top;
     control := control.parent;
   end;
+  result.Width  :=Width;
+  result.Height :=Height;
 end;
 
 procedure THSEdit.SetColor(Value: TColor);
@@ -819,11 +825,12 @@ end;
 
 procedure TMainForm.btnGenerateClick(Sender: TObject);
 begin
-  if modelEdit1.Items.count=0 then
-    if MessageDlg('No models found, Would you like to download a recommended one? [FLUX-klein-4B]', mtConfirmation, mbYesNo, 0) = mrYes then
-      mnuDL1.Click
-    else exit;
-  checkExistingModels;
+  if (modelEdit1.Items.count=0) {or not TFLUX4BDownloader.modelExists(appPath+MODELS_DIR+PathDelim+modelEdit1.Text)} then
+    if (MessageDlg('No models found, Would you like to download a recommended one? [FLUX-klein-4B]', mtConfirmation, mbYesNo, 0) = mrYes) then begin
+      mnuDL1.Click;
+      checkExistingModels;
+    end
+      else exit;
   if btnTxt2Img.Down then begin
     if (btnGenerate.Caption = 'Generate') then begin
       TControl(btnGenerate).Caption := 'Stop';
@@ -924,7 +931,7 @@ procedure TMainForm.edtCFGMouseWheel(Sender: TObject; Shift: TShiftState;
 var s:currency;
 begin
   if TryStrToCurr(TEdit(sender).text, s) then
-    if (s>0) or (WheelDelta>0) then
+    if (s>1) or (WheelDelta>0) then
       TEdit(Sender).Text := CurrToStr(s + (2*ord(WheelDelta>0)-1)*0.1);
 end;
 
@@ -940,12 +947,12 @@ end;
 procedure TMainForm.FormCreate(Sender: TObject);
 var i:TQNNSchedule; s:ansistring;
 begin
-  DefaultFormatSettings.DecimalSeparator := '.';
+  //DefaultFormatSettings.DecimalSeparator := '.';
   if not DirectoryExists(AppPath + '/../../../Examples') then
     MODELS_DIR := ExtractFileName(MODELS_DIR);
   checkExistingModels;
-  if cmbModels.Items.count>0 then
-    cmbModels.ItemIndex:=0;
+  //if cmbModels.Items.count>0 then
+  //  cmbModels.ItemIndex:=0;
   cmbSchedular.Items.Clear;
 
   for i := low(TQNNSchedule) to high(TQNNSchedule) do begin
@@ -1151,6 +1158,11 @@ begin
     end;
   finally
     FindClose(sr);
+  end;
+  if cmbModels.Items.Count>0 then cmbModels.ItemIndex:=0;
+  if assigned(modeledit1) then begin
+    modeledit1.Items.text := cmbModels.Items.Text;
+    modeledit1.ItemIndex:=cmbModels.ItemIndex;
   end;
 end;
 

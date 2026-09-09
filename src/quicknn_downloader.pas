@@ -21,13 +21,43 @@ type
 
   TFLUX4BDownloader= record
   const
-     ENCODER_DIR     = 'text_encoder';
-     TOKENIZER_DIR   = 'tokenizer';
-     TRANSFORMER_DIR = 'transformer';
-     VAE_DIR         = 'vae';
-     DST_PATH        = 'FLUX.2-klein-4B';
-     HTTP_ROOT       = 'https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/';
-     HF_DOWNLOAD_ARG = '?download=true';
+    ENCODER_DIR     = 'text_encoder';
+    TOKENIZER_DIR   = 'tokenizer';
+    TRANSFORMER_DIR = 'transformer';
+    VAE_DIR         = 'vae';
+    DST_PATH        = 'FLUX.2-klein-4B';
+    HTTP_ROOT       = 'https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/';
+    HF_DOWNLOAD_ARG = '?download=true';
+
+
+    MODEL_INDEX = 'model_index.json';
+    ENCODER_FILES : array of string = [
+      'generation_config.json' ,
+      'model-00001-of-00002.safetensors' ,
+      'model-00002-of-00002.safetensors' ,
+      'model.safetensors.index.json'
+    ];
+
+    TOKENIZER_FILES : array of string = [
+      'added_tokens.json',
+      'chat_template.jinja',
+      'merges.txt',
+      'special_tokens_map.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'vocab.json'
+    ];
+
+    TRANSFORMER_FILES : array of string = [
+      'config.json',
+      'diffusion_pytorch_model.safetensors'
+    ];
+
+    VAE_FILES : array of string = [
+      'config.json',
+      'diffusion_pytorch_model.safetensors'
+    ];
+
    var
      FHttp : TNHttp;
      stage:longint;
@@ -38,6 +68,7 @@ type
    private
      procedure OnReceive(sender:TObject; const received, total:int64);
    public
+     class function modelExists(modelPath:string):boolean;static;
      procedure Cancel();
      procedure download(modelsPath: string = 'models'; srcPath: string='');
   end;
@@ -100,6 +131,37 @@ begin
   if assigned(OnProgress) then OnProgress(FSubReceived, FSubTotal, FReceived, FTotal);
 end;
 
+class function TFLUX4BDownloader.modelExists(modelPath: string): boolean;
+var i:integer;
+begin
+  if modelPath<>'' then
+    if not (modelPath[length(modelPath)] in ['\','/']) then
+      modelPath := modelPath+PathDelim;
+  result := true;
+  result := result and fileExists(modelPath+MODEL_INDEX);
+  if not result then exit;
+  for i := 0 to high(ENCODER_FILES) do begin
+    result := result and FileExists(modelPath+ENCODER_DIR+PathDelim+ENCODER_FILES[i]);
+    if not result then exit
+  end;
+
+  for i := 0 to high(TOKENIZER_FILES) do begin
+    result := result and FileExists(modelPath+TOKENIZER_DIR+PathDelim+TOKENIZER_FILES[i]);
+    if not result then exit
+  end;
+
+  for i := 0 to high(TRANSFORMER_FILES) do begin
+    result := result and FileExists(modelPath+TRANSFORMER_DIR+PathDelim+TRANSFORMER_FILES[i]);
+    if not result then exit
+  end;
+
+  for i := 0 to high(VAE_FILES) do begin
+    result := result and FileExists(modelPath+VAE_DIR+PathDelim+VAE_FILES[i]);
+    if not result then exit
+  end;
+
+end;
+
 procedure TFLUX4BDownloader.Cancel();
 begin
   {$ifdef FPC}
@@ -111,35 +173,6 @@ begin
 end;
 
 procedure TFLUX4BDownloader.download(modelsPath: string; srcPath: string);
-const
-  ENCODER_FILES : array of string = [
-    'generation_config.json' ,
-    'model-00001-of-00002.safetensors' ,
-    'model-00002-of-00002.safetensors' ,
-    'model.safetensors.index.json'
-  ];
-
-  TOKENIZER_FILES : array of string = [
-    'added_tokens.json',
-    'chat_template.jinja',
-    'merges.txt',
-    'special_tokens_map.json',
-    'tokenizer.json',
-    'tokenizer_config.json',
-    'vocab.json'
-  ];
-
-  TRANSFORMER_FILES : array of string = [
-    'config.json',
-    'diffusion_pytorch_model.safetensors'
-  ];
-
-  VAE_FILES : array of string = [
-    'config.json',
-    'diffusion_pytorch_model.safetensors'
-  ];
-
-
 var curDir :string;
     i, dsize, fSize : int64;
     //sl : TStringList;
@@ -165,8 +198,8 @@ begin
     MakeDir(curDir + TOKENIZER_DIR);
     MakeDir(curDir + TRANSFORMER_DIR);
     MakeDir(curDir + VAE_DIR);
-    if not fileExists(curDir+'model_index.json') then
-      fhttp.Download('https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/model_index.json?download=true', curDir+'model_index.json');
+    if not fileExists(curDir+MODEL_INDEX) then
+      fhttp.Download('https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/'+MODEL_INDEX+'?download=true', curDir+MODEL_INDEX);
     for i := 0 to high(ENCODER_FILES) do begin
         if FHTTP.FHTTP.Terminated then abort;
       currentFile := ENCODER_FILES[i];

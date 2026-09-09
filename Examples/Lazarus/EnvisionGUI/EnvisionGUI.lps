@@ -83,18 +83,18 @@
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="15"/>
-        <TopLine Value="1600"/>
-        <CursorPos X="44" Y="1622"/>
+        <TopLine Value="2557"/>
+        <CursorPos X="11" Y="2581"/>
         <UsageCount Value="107"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\quicknncpu.pas"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="25"/>
-        <TopLine Value="1800"/>
-        <CursorPos Y="1824"/>
+        <TopLine Value="206"/>
+        <CursorPos X="82" Y="226"/>
         <UsageCount Value="105"/>
         <Loaded Value="True"/>
       </Unit>
@@ -107,8 +107,8 @@
       <Unit>
         <Filename Value="..\..\..\src\quicknn_kernels.pas"/>
         <EditorIndex Value="16"/>
-        <TopLine Value="2068"/>
-        <CursorPos Y="2094"/>
+        <TopLine Value="272"/>
+        <CursorPos X="12" Y="292"/>
         <UsageCount Value="102"/>
         <Loaded Value="True"/>
       </Unit>
@@ -336,7 +336,7 @@
         <EditorIndex Value="23"/>
         <TopLine Value="1012"/>
         <CursorPos X="14" Y="1027"/>
-        <UsageCount Value="61"/>
+        <UsageCount Value="62"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -344,7 +344,7 @@
         <EditorIndex Value="24"/>
         <TopLine Value="1361"/>
         <CursorPos X="3" Y="1364"/>
-        <UsageCount Value="61"/>
+        <UsageCount Value="62"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -504,7 +504,7 @@
         <EditorIndex Value="22"/>
         <TopLine Value="4"/>
         <CursorPos X="8" Y="2760"/>
-        <UsageCount Value="59"/>
+        <UsageCount Value="60"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -554,83 +554,11 @@
         <Filename Value="..\..\..\..\..\lazarus\fpc\3.2.2\source\rtl\win\syswinh.inc"/>
         <EditorIndex Value="20"/>
         <CursorPos X="2" Y="19"/>
-        <UsageCount Value="22"/>
+        <UsageCount Value="23"/>
         <Loaded Value="True"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="29">
-      <Position>
-        <Filename Value="mainunit.pas"/>
-        <Caret Line="349" Column="27" TopLine="408"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="87" Column="14" TopLine="64"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="485" Column="5" TopLine="472"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="86" Column="14" TopLine="64"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="469" Column="3" TopLine="465"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="88" Column="14" TopLine="63"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="635" Column="3" TopLine="626"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="87" Column="18" TopLine="66"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="573" Column="20" TopLine="569"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="570" Column="20" TopLine="569"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="599" Column="26" TopLine="569"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="86" Column="14" TopLine="64"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="469" Column="3" TopLine="465"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="86" Column="14" TopLine="63"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="472" Column="3" TopLine="465"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="87" Column="14" TopLine="64"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="572" Column="5" TopLine="449"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_common.pas"/>
-        <Caret Line="138" Column="3" TopLine="115"/>
-      </Position>
+    <JumpHistory HistoryIndex="20">
       <Position>
         <Filename Value="..\..\..\src\quicknn_common.pas"/>
         <Caret Line="134" Column="42" TopLine="115"/>
@@ -678,6 +606,42 @@
       <Position>
         <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
         <Caret Line="1647" Column="35" TopLine="1624"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
+        <Caret Line="1622" Column="44" TopLine="1602"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\src\quicknn_kernels.pas"/>
+        <Caret Line="1783" TopLine="1762"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
+        <Caret Line="2590" TopLine="2570"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
+        <Caret Line="2584" Column="11" TopLine="2552"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
+        <Caret Line="2550" Column="15" TopLine="2556"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
+        <Caret Line="2581" Column="42" TopLine="2552"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
+        <Caret Line="2584" TopLine="2552"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
+        <Caret Line="2589" TopLine="2557"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
+        <Caret Line="2581" Column="11" TopLine="2557"/>
       </Position>
     </JumpHistory>
     <RunParams>

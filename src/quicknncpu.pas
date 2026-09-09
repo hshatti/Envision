@@ -223,7 +223,7 @@ type
     class procedure QNNUnpatchify(const dst, src: PSingle; const batch, channels, H, W, patch_size: longint);
     class procedure QNNPermut(const dst, src:PSingle;
                           const axisPerm:TArray<byte>;
-                          const inShape:TArray<int64>);
+                          const inShape:TArray<int64>; var outShape:TArray<Int64>);
     class procedure QNNCopy(const dst, src:PSingle; const N:integer); overload;
     class procedure QNNCopyStrided(const dst:PSingle; const dstStride:integer; const src:PSingle; const srcStride: integer; const N:integer); overload;
     class procedure QNNFill(const dst:PSingle; const val:Single; const N:integer; const stride:integer=1);
@@ -3375,24 +3375,24 @@ end;
 class procedure TQNNSingleOPS.QNNPermut(
   const dst, src: PSingle;
   const axisPerm: TArray<byte>;
-  const inShape: TArray<int64>);
+  const inShape: TArray<int64>; var outShape:TArray<int64>);
 var
   i, lvl, {ndims, }total: int64;
   outLinear, inLinear: int64;
-  outShape, inIdx, outIdx, inStrides, outStrides: TArray<int64>;
+  oShape, inIdx, outIdx, inStrides, outStrides: TArray<int64>;
 
 begin
   inStrides := getStrides(inShape);
-  outShape  := Copy(inShape);
+  oShape  := Copy(inShape);
   for i := 0 to high(inShape) do
-    outShape[i] := inShape[axisPerm[i]];
-  outStrides := getStrides(outShape);
+    oShape[i] := inShape[axisPerm[i]];
+  outStrides := getStrides(oShape);
   setLength(inIdx,  length(inShape));   // setLength will initiate the array to zero
-  setLength(outIdx, length(outShape));  // setLength will initiate the array to zero
+  setLength(outIdx, length(oShape));  // setLength will initiate the array to zero
 
-  //ndims := length(outShape);
-  total := product(outShape);
-  //for i := 0 to ndims-1 do total := total * outShape[i];
+  //ndims := length(oShape);
+  total := product(oShape);
+  //for i := 0 to ndims-1 do total := total * oShape[i];
 
   //for i := 0 to ndims-1 do begin inIdx[i] := 0; outIdx[i] := 0; end;
   outLinear := 0;
@@ -3401,10 +3401,10 @@ begin
   for i := 0 to total-1 do begin
     dst[outLinear] := src[inLinear];
 
-    lvl := high(outShape);
-    while (lvl >= 0) and (outIdx[lvl] + 1 >= outShape[lvl]) do begin
-      Dec(outLinear, (outShape[lvl]-1) * outStrides[lvl]);
-      Dec(inLinear,  (outShape[lvl]-1) * inStrides[axisPerm[lvl]]);
+    lvl := high(oShape);
+    while (lvl >= 0) and (outIdx[lvl] + 1 >= oShape[lvl]) do begin
+      Dec(outLinear, (oShape[lvl]-1) * outStrides[lvl]);
+      Dec(inLinear,  (oShape[lvl]-1) * inStrides[axisPerm[lvl]]);
       outIdx[lvl] := 0;
       Dec(lvl);
     end;
@@ -3415,6 +3415,7 @@ begin
       Inc(inLinear,  inStrides[axisPerm[lvl]]);
     end;
   end;
+  if assigned(outShape) then outShape:=oShape
 end;
 
 // ============================================================================

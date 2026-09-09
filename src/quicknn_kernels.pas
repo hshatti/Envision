@@ -1749,8 +1749,9 @@ begin
   assert(length(axis)=length(src.shape), 'ERROR [QNNPermute] : Axis and Source dimensions dimensions must be the same.');
   if not dst.isAssigned() then begin
     dst := TMemoryBlock.Create(copy(src.shape), '');
-  end else
-    assert(length(dst.shape)=length(src.shape), 'ERROR [QNNPermute] : Destination and Source dimensions must be the same.');
+  end else begin
+    assert(dst.size>=src.size, 'ERROR [QNNPermute] : Destination and Source dimensions must be the same.');
+  end;
 
   for i := 0 to High(axis) do begin
     assert(not(axis[i] in dims) and (axis[i]<length(axis)), 'ERROR [QNNPermute] : axis cannot be out of dimensions boundries or duplicated!');
@@ -1760,7 +1761,7 @@ begin
   case src.DataType of
     dtF32 :
       //AltPermut(dst, src, src.shape, axis);
-      TQNNSingleOPS.QNNPermut(dst, src, axis, src.shape);
+      TQNNSingleOPS.QNNPermut(dst, src, axis, src.shape, dst.shape);
   else
     OP_IMPL_FAIL()
   end;

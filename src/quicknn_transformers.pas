@@ -2578,7 +2578,7 @@ begin
     //   in shape : [in_ch, latent_h div patch_size, patch_size, latent_w div patch_size, patch_size]
     //   out shape : [latent_h div patch_size, latent_w div patch_size, patch_size, patch_size, in_channels]
 
-    //img_patches := TMemoryBlock.Create([img_padded, patch_feat], 'ZI_FW_IMG_PATCHES');
+    img_patches := TMemoryBlock.Create([img_padded, patch_feat], 'ZI_FW_IMG_PATCHES');
     //patchifyZi(img_patches, latent, in_channels, latent_h, latent_w, patch_size);
     latent.reshape([in_channels, latent_h div patch_size, patch_size, latent_w div patch_size, patch_size]);
     QNNPermut(img_patches, latent, [1, 3, 2, 4, 0]);

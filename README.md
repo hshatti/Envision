@@ -62,8 +62,11 @@ OpenBLAS is not required on **MacOS** _(Intel or Silicon)_ since it will automat
 
 **Building**
 
-**[Windows / Linux /MacOS]**
-Open the provided Project from the Example folder (If using Lazarus I recommend trying EnvisionGUI ) and hit **run** ▶️ *(Debug or Release)*
+*[Windows / Linux /MacOS]*
+
+- Use the "Download" menu or place the downloaded model folder in "Examples/models" 
+- Open the provided Project from the Example folder (If using Lazarus I recommend trying EnvisionGUI ) and hit **run** ▶️ *(Debug or Release)*
+
 
 ## Showcase
 

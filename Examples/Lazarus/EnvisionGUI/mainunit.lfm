@@ -239,7 +239,7 @@ object MainForm: TMainForm
       OnDropDown = cmbModelsDropDown
     end
     object Label3: TLabel
-      Left = 48
+      Left = 56
       Height = 15
       Top = 8
       Width = 34
@@ -280,7 +280,7 @@ object MainForm: TMainForm
       Left = 0
       Height = 31
       Top = 0
-      Width = 32
+      Width = 48
       Alignment = taCenter
       AutoSize = False
       Caption = '≡'
@@ -713,7 +713,7 @@ object MainForm: TMainForm
         BorderStyle = bsNone
         Color = 2236962
         TabOrder = 3
-        Text = '2.0'
+        Text = '2'
         OnMouseWheel = edtCFGMouseWheel
       end
       object edtCFG: TEdit
@@ -727,7 +727,7 @@ object MainForm: TMainForm
         BorderStyle = bsNone
         Color = 2236962
         TabOrder = 4
-        Text = '1.0'
+        Text = '1'
         OnChange = edtCFGChange
         OnMouseWheel = edtCFGMouseWheel
       end

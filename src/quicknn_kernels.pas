@@ -1750,7 +1750,7 @@ begin
   if not dst.isAssigned() then begin
     dst := TMemoryBlock.Create(copy(src.shape), '');
   end else begin
-    assert(dst.size>=src.size, 'ERROR [QNNPermute] : Destination and Source dimensions must be the same.');
+    assert(dst.size+dst.offset >= src.offset + product(src.shape), 'ERROR [QNNPermute] : Destination or Source shapes out of bounds.');
   end;
 
   for i := 0 to High(axis) do begin

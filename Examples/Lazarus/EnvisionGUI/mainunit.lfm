@@ -663,6 +663,8 @@ object MainForm: TMainForm
           '1024 X 768'
           '640 X 360'
           '1280 X 720'
+          '1600 X 900'
+          '1600 X 1200'
         )
         TabOrder = 1
         Text = '256 X 256'

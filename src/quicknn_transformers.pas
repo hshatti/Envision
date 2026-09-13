@@ -1695,8 +1695,8 @@ begin
         if use_mmap then
             double_blocks[i].load(sf_files, i, hidden_size, mlp_hidden, use_bf16);
         doubleBlockForward(combined_hidden, txt_hidden, i, double_mod_img, double_mod_txt, combined_rope_cos, combined_rope_sin, txt_rope_cos, txt_rope_sin, combined_img_seq, txt_seq);
-        //if use_mmap then
-        //    free_double_block_weights( and double_blocks[i]);
+        if use_mmap then
+            double_blocks[i].free;
         if assigned(substep_callback) then
             substep_callback(SUBSTEP_DOUBLE_BLOCK, i, num_double_layers)
     end;
@@ -1707,6 +1707,8 @@ begin
         if use_mmap then
             single_blocks[i].load(sf_files, i, hidden_size, mlp_hidden, use_bf16);
         singleblockforward(concat_hidden, i, t_emb, adaln_single_weight, combined_rope_cos, combined_rope_sin, txt_rope_cos, txt_rope_sin, total_seq, txt_seq);
+        if use_mmap then
+            single_blocks[i].free;
         if assigned(substep_callback) then
             substep_callback(SUBSTEP_SINGLE_BLOCK, i, num_single_layers)
     end;
@@ -1719,6 +1721,7 @@ begin
     //        x := t_emb[i];
     //        t_emb_silu[i] := x div (1.0+expf(-x))
     //    end;
+    t_emb.free;
     final_mod := double_mod_img;
     QNNLinearNoBias(final_mod, t_emb_silu, final_norm_weight, 1, hidden_size, hidden_size * 2);
     final_scale := final_mod;
@@ -1818,6 +1821,8 @@ begin
             if use_mmap then
                 double_blocks[i].load(sf_files, i, hidden_size, mlp_hidden, use_bf16);
             doubleBlockForward(combined_hidden, txt_hidden, i, double_mod_img, double_mod_txt, combined_rope_cos, combined_rope_sin, txt_rope_cos, txt_rope_sin, combined_img_seq, txt_seq);
+            if use_mmap then
+                double_blocks[i].free();
             if assigned(substep_callback) then
                 substep_callback(SUBSTEP_DOUBLE_BLOCK, i, num_double_layers)
         end;
@@ -1829,7 +1834,8 @@ begin
         if use_mmap then
             single_blocks[i].load(sf_files, i, hidden_size, mlp_hidden, use_bf16);
         singleBlockForward(concat_hidden, i, t_emb, adaln_single_weight, combined_rope_cos, combined_rope_sin, txt_rope_cos, txt_rope_sin, total_seq, txt_seq);
-
+        if use_mmap then
+            single_blocks[i].free();
         if assigned(substep_callback) then
           substep_callback(SUBSTEP_SINGLE_BLOCK, i, num_single_layers)
     end;
@@ -1844,6 +1850,7 @@ begin
     //        x := t_emb[i];
     //        tf.t_emb_silu[i] := x / (1.0+expf(-x))
     //    end;
+    t_emb.free();
     final_mod := double_mod_img;
     QNNLinearNoBias(final_mod, t_emb_silu, final_norm_weight, 1, hidden_size, hidden_size * 2);
     final_scale := final_mod;

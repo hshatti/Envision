@@ -1034,6 +1034,22 @@ begin
   dlgImage.FileName:='';
   if not dlgImage.Execute  then exit;
   img := TQNNImage.loadFromFile(dlgImage.FileName);
+  if (img.width>QNN_VAE_MAX_DIM) or (img.height>QNN_VAE_MAX_DIM) then
+    if MessageDlg(format('One of the image dimensions is above the allowed resolution [%d X %d] > [%d X %d], resize to and proceed?', [img.width, img.height, QNN_VAE_MAX_DIM, QNN_VAE_MAX_DIM]), mtConfirmation, mbYesNo, 0)=mrYes then
+      begin
+        if img.width>QNN_VAE_MAX_DIM then begin
+          w := 1280;
+          h := trunc(img.height * w / img.width);
+        end;
+        if img.height>QNN_VAE_MAX_DIM then begin
+          h := 1280;
+          w := trunc(img.width * h / img.height);
+        end;
+        img := img.resize(w, h);
+      end else begin
+        img.free;
+        exit
+      end;
   bmp := Graphics.TBitmap.Create;
   QNNImageToBitmap(img, bmp);
   mainform.Image1.Picture.Graphic:= bmp;

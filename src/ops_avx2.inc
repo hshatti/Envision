@@ -1,5 +1,5 @@
 //{$if defined(CPUX64) and defined(USE_AVX2)}
-{$if defined(CPUX64)}
+{$if defined(CPUX64) and defined(USE_AVX2)}
 
 
 (*
@@ -501,7 +501,7 @@ end;
 
 procedure sScaleInplace_avx2(const N:NativeInt; const src:PSingle; const scale:single);assembler;
 asm
-  vbroadcastss  xmm4 , scale
+  vbroadcastss  ymm4 , scale
   mov           rax  , N
   shr           rax  , 5
   jz            @rem1
@@ -906,9 +906,69 @@ asm
   //pop          r11
 end;
 
-function sSumSqr_avx2(const N:NativeInt; const src: PSingle):single;assembler;
+function sSum_avx2(const N:NativeInt; const src:PSingle):Single;assembler;{$ifdef fpc}nostackframe;{$endif}
 asm
+  {$ifndef FPC}
+  .NOFRAME
+  {$endif}
+  vxorps        ymm0 , ymm0, ymm0
+  vxorps        ymm1 , ymm1, ymm1
+  vxorps        ymm2 , ymm2, ymm2
+  vxorps        ymm3 , ymm3, ymm3
 
+  mov           r8   , N
+  shr           r8   , 5
+  jz            @rem1
+
+@while1:
+  vaddps        ymm0 , ymm0, yword [src]
+  vaddps        ymm1 , ymm1, yword [src + 32  ]
+  vaddps        ymm2 , ymm2, yword [src + 32*2]
+  vaddps        ymm3 , ymm3, yword [src + 32*3]
+  add           src  , 32*4
+  dec           r8
+  jnz           @while1
+
+  vaddps        ymm0 , ymm0, ymm1
+  vaddps        ymm2 , ymm2, ymm3
+  vaddps        ymm0 , ymm0, ymm2
+
+@rem1:
+  mov           r8   , N
+  and           r8   , 31
+  shr           r8   , 3
+  jz            @rem
+
+@while:
+  vaddps        ymm0 , ymm0, yword [src]
+  add           src  , 32
+  dec           r8
+  jnz           @while
+
+@rem:
+  mov           r8   , N
+  and           r8   , 7
+  jz            @done
+
+  vmovd         xmm1 , r8d
+  vpbroadcastd  ymm1 , xmm1
+  vpcmpgtd      ymm1 , ymm1, YMMD[rip]
+  vmaskmovps    ymm1 , ymm1, yword [src]
+  vaddps        ymm0 , ymm0, ymm1
+
+@done:
+  vextractf128  xmm1 , ymm0, $1
+  vzeroupper
+  vaddps        xmm0 , xmm0, xmm1
+  haddps        xmm0 , xmm0
+  haddps        xmm0 , xmm0
+end;
+
+function sSumSqr_avx2(const N:NativeInt; const src: PSingle):single;assembler;{$ifdef fpc}nostackframe;{$endif}
+asm
+  {$ifndef FPC}
+  .NOFRAME
+  {$endif}
   mov           r8   , N
   shr           r8   , 4
   jz            @rem1
@@ -972,9 +1032,11 @@ asm
 
 end;
 
-function sSumSqrDiff_avx2(const N:NativeInt; const src, aMean: PSingle):single;assembler;
+function sSumSqrDiff_avx2(const N:NativeInt; const src, aMean: PSingle):single;assembler;{$ifdef fpc}nostackframe;{$endif}
 asm
-
+  {$ifndef FPC}
+  .NOFRAME
+  {$endif}
   mov           r9   , N
   shr           r9   , 4
   jz            @rem1
@@ -1247,15 +1309,17 @@ end;
 *)
 procedure sDot_x8_avx2(const A, B, C: PSingle; K, ldb:NativeInt; const alpha:single); assembler;
 asm
+  push r10
+{$ifdef MSWINDOWS}
   sub           rsp  , $10*7
   vmovdqu       [rsp + $00] , xmm6
-  vmovdqu       [rsp + $01] , xmm7
-  vmovdqu       [rsp + $02] , xmm8
-  vmovdqu       [rsp + $03] , xmm9
-  vmovdqu       [rsp + $04] , xmm10
-  vmovdqu       [rsp + $05] , xmm11
-  vmovdqu       [rsp + $06] , xmm12
-
+  vmovdqu       [rsp + $10] , xmm7
+  vmovdqu       [rsp + $20] , xmm8
+  vmovdqu       [rsp + $30] , xmm9
+  vmovdqu       [rsp + $40] , xmm10
+  vmovdqu       [rsp + $50] , xmm11
+  vmovdqu       [rsp + $60] , xmm12
+{$endif}
 
   vxorps        ymm1 , ymm1 , ymm1
   vxorps        ymm2 , ymm2 , ymm2
@@ -1394,24 +1458,29 @@ asm
   vmovups       yword[C], ymm0
 
   vzeroupper
+{$ifdef MSWINDOWS}
   vmovdqu       xmm6 , [rsp + $00]
-  vmovdqu       xmm7 , [rsp + $01]
-  vmovdqu       xmm8 , [rsp + $02]
-  vmovdqu       xmm9 , [rsp + $03]
-  vmovdqu       xmm10, [rsp + $04]
-  vmovdqu       xmm11, [rsp + $05]
-  vmovdqu       xmm12, [rsp + $06]
+  vmovdqu       xmm7 , [rsp + $10]
+  vmovdqu       xmm8 , [rsp + $20]
+  vmovdqu       xmm9 , [rsp + $30]
+  vmovdqu       xmm10, [rsp + $40]
+  vmovdqu       xmm11, [rsp + $50]
+  vmovdqu       xmm12, [rsp + $60]
   add           rsp  , $10*7
+{$endif}
+  pop r10
 end;
 
 procedure sDot_x4_avx2(const A, B, C: PSingle; K, ldb:NativeInt; const alpha:single); assembler;
 asm
+  push r10
+{$ifdef MSWINDOWS}
   sub           rsp  , $10*4
   vmovdqu       [rsp + $00] , xmm6
-  vmovdqu       [rsp + $01] , xmm7
-  vmovdqu       [rsp + $02] , xmm8
-  vmovdqu       [rsp + $03] , xmm9
-
+  vmovdqu       [rsp + $10] , xmm7
+  vmovdqu       [rsp + $20] , xmm8
+  vmovdqu       [rsp + $30] , xmm9
+{$endif}
 
   vxorps        ymm1 , ymm1 , ymm1
   vxorps        ymm2 , ymm2 , ymm2
@@ -1499,23 +1568,50 @@ asm
   vfmadd213ps   xmm0 , xmm1 , oword[C]
   vmovups       oword[C], xmm0
 
-
+{$ifdef MSWINDOWS}
   vmovdqu       xmm6 , [rsp + $00]
-  vmovdqu       xmm7 , [rsp + $01]
-  vmovdqu       xmm8 , [rsp + $02]
-  vmovdqu       xmm9 , [rsp + $03]
+  vmovdqu       xmm7 , [rsp + $10]
+  vmovdqu       xmm8 , [rsp + $20]
+  vmovdqu       xmm9 , [rsp + $30]
   add           rsp  , $10*4
+{$endif}
+  pop r10
 end;
 
+
+(* // comments for future
+
+matrix multiplication (><) factorized for quantization :
+-  (a1·x + b1·J)  ><  (a2·y + b2·J)
+       = a1·a2·(x >< y)
+       + a1·b2·(x >< J)
+       + b1·a2·(J >< y)
+       + b1·b2·(J >< J)
+
+     The scalars all distribute out — but b terms do not vanish here (unlike softmax),
+     because J is not a scalar multiple of the identity. The leftovers are low-rank:
+
+     - x >< J = row-sums of x broadcast across columns
+     - J >< y = column-sums of y broadcast down rows
+     - J >< J = scalar b1·b2·(m·n) effectively
+
+     So the fully factored form is a1·a2·(x⊗y) plus rank-1 corrections. To get clean x >< y
+     alone, you'd need b1 = b2 = 0.
+
+*)
+
+(*
 procedure sDot_4x4_avx2(const A, B, C: PSingle; K, lda, ldb, ldc:NativeInt; const alpha:single); assembler;
 var c4x4 : array[0..4*4*8-1] of single;
 asm
   push          r12
+{$ifdef MSWINDOWS}
   sub           rsp  , $10*4
   vmovdqu       [rsp + $00] , xmm6
-  vmovdqu       [rsp + $01] , xmm7
-  vmovdqu       [rsp + $02] , xmm8
-  vmovdqu       [rsp + $03] , xmm9
+  vmovdqu       [rsp + $10] , xmm7
+  vmovdqu       [rsp + $20] , xmm8
+  vmovdqu       [rsp + $30] , xmm9
+{$endif}
 
   vxorps        ymm1 , ymm1 , ymm1
   vxorps        ymm2 , ymm2 , ymm2
@@ -1657,7 +1753,7 @@ asm
   vmovups       yword [c4x4 + $60 ]       ,ymm4
   add           r10  , lda
 
-  vmovups       ymm0 , yword [A + r10*4]
+  vmaskmovps    ymm0 , ymm5 , yword [A + r10*4]
   mov           rax  , r12
   vmovups       ymm1 , yword [c4x4 + $80]
   vmovups       ymm2 , yword [c4x4 + $A0]
@@ -1681,7 +1777,7 @@ asm
   vmovups       yword [c4x4 + $E0]       ,ymm4
   add           r10  , lda
 
-  vmovups       ymm0 , yword [A + r10*4]
+  vmaskmovps    ymm0 , ymm5 , yword [A + r10*4]
   mov           rax  , r12
   vmovups       ymm1 , yword [c4x4 + $100]
   vmovups       ymm2 , yword [c4x4 + $120]
@@ -1705,7 +1801,7 @@ asm
   vmovups       yword [c4x4 + $160]       ,ymm4
   add           r10  , lda
 
-  vmovups       ymm0 , yword [A + r10*4]
+  vmaskmovps    ymm0 , ymm5 , yword [A + r10*4]
   mov           rax  , r12
   vmovups       ymm1 , yword [c4x4 + $180]
   vmovups       ymm2 , yword [c4x4 + $1A0]
@@ -1728,11 +1824,12 @@ asm
   vmovups       yword [c4x4 + $1C0]       ,ymm3
   vmovups       yword [c4x4 + $1E0]       ,ymm4
 
+@final:
+
   xor           rax  , rax
   xor           r10  , r10
 
-@final:
-
+@loopC:
   vmovups       ymm1 , yword [c4x4 + rax]
   vmovups       ymm2 , yword [c4x4 + rax + $20]
   vmovups       ymm3 , yword [c4x4 + rax + $40]
@@ -1772,19 +1869,887 @@ asm
   add           r10 , ldc
   add           rax , $80
   cmp           rax , $200
-  jl            @final
+  jl            @loopC
 @done:
+{$ifdef MSWINDOWS}
   vmovdqu       xmm6 , [rsp + $00]
-  vmovdqu       xmm7 , [rsp + $01]
-  vmovdqu       xmm8 , [rsp + $02]
-  vmovdqu       xmm9 , [rsp + $03]
+  vmovdqu       xmm7 , [rsp + $10]
+  vmovdqu       xmm8 , [rsp + $20]
+  vmovdqu       xmm9 , [rsp + $30]
   add           rsp  , $10*4
+{$endif}
+  pop           r12
+end;
+*)
+
+procedure sAxpy_2x2_avx2(const A, B, C: PSingle; const N, lda, ldb, ldc:Int64; const alpha:single);assembler;
+asm
+  push r10
+  {$ifdef MSWINDOWS}
+  sub                rsp  , $10*10
+  vmovdqu            [rsp + $00] , xmm6
+  vmovdqu            [rsp + $10] , xmm7
+  vmovdqu            [rsp + $20] , xmm8
+  vmovdqu            [rsp + $30] , xmm9
+  vmovdqu            [rsp + $40] , xmm10
+  vmovdqu            [rsp + $50] , xmm11
+  vmovdqu            [rsp + $60] , xmm12
+  vmovdqu            [rsp + $70] , xmm13
+  vmovdqu            [rsp + $80] , xmm14
+  vmovdqu            [rsp + $90] , xmm15
+  {$endif}
+
+  mov                rax  , lda
+  movss              xmm4 , alpha
+  vmulss             xmm0 , xmm4 , dword[A]
+  vmulss             xmm1 , xmm4 , dword[A + $4]
+  vmulss             xmm2 , xmm4 , dword[A + rax*4]
+  vmulss             xmm3 , xmm4 , dword[A + rax*4 + $4]
+
+  vbroadcastss       ymm0 , xmm0
+  vbroadcastss       ymm1 , xmm1
+  vbroadcastss       ymm2 , xmm2
+  vbroadcastss       ymm3 , xmm3
+
+  mov                r11  , ldc
+  imul               r11  , sizeof(single)
+  mov                r10  , ldb
+  imul               r10  , sizeof(single)
+
+  mov                rax  , N
+  shr                rax  , 5    // N div 32
+  jz                 @rem2
+
+@while2:
+
+  vmovups            ymm4 , yword [C]
+  vmovups            ymm5 , yword [C + $20*1]
+  vmovups            ymm6 , yword [C + $20*2]
+  vmovups            ymm7 , yword [C + $20*3]
+
+  vfmadd231ps        ymm4 , ymm0 , yword [B]
+  vfmadd231ps        ymm5 , ymm0 , yword [B + $20*1]
+  vfmadd231ps        ymm6 , ymm0 , yword [B + $20*2]
+  vfmadd231ps        ymm7 , ymm0 , yword [B + $20*3]
+
+  vfmadd231ps        ymm4 , ymm1 , yword [B + r10]
+  vfmadd231ps        ymm5 , ymm1 , yword [B + r10 + $20*1]
+  vfmadd231ps        ymm6 , ymm1 , yword [B + r10 + $20*2]
+  vfmadd231ps        ymm7 , ymm1 , yword [B + r10 + $20*3]
+
+  vmovups            yword [C] , ymm4
+  vmovups            yword [C + $20*1] , ymm5
+  vmovups            yword [C + $20*2] , ymm6
+  vmovups            yword [C + $20*3] , ymm7
+
+  vmovups            ymm4 , yword [C + r11]
+  vmovups            ymm5 , yword [C + r11 + $20*1]
+  vmovups            ymm6 , yword [C + r11 + $20*2]
+  vmovups            ymm7 , yword [C + r11 + $20*3]
+
+  vfmadd231ps        ymm4 , ymm2 , yword [B]
+  vfmadd231ps        ymm5 , ymm2 , yword [B + $20*1]
+  vfmadd231ps        ymm6 , ymm2 , yword [B + $20*2]
+  vfmadd231ps        ymm7 , ymm2 , yword [B + $20*3]
+
+  vfmadd231ps        ymm4 , ymm3 , yword [B + r10]
+  vfmadd231ps        ymm5 , ymm3 , yword [B + r10 + $20*1]
+  vfmadd231ps        ymm6 , ymm3 , yword [B + r10 + $20*2]
+  vfmadd231ps        ymm7 , ymm3 , yword [B + r10 + $20*3]
+
+  vmovups            yword [C + r11] , ymm4
+  vmovups            yword [C + r11 + $20*1] , ymm5
+  vmovups            yword [C + r11 + $20*2] , ymm6
+  vmovups            yword [C + r11 + $20*3] , ymm7
+
+
+  add                C    , $20*4
+  add                B    , $20*4
+  dec                rax
+  jnz                @while2
+
+
+@rem2:
+  mov                rax  , N
+  and                rax  , 31
+  shr                rax  , 3    // N div 8
+  jz                 @rem
+
+@while1:
+  vmovups            ymm7 , yword [B]
+  vmovups            ymm8 , yword [B + r10]
+  vmovups            ymm4 , yword [C]
+  vmovups            ymm5 , yword [C + r11]
+
+  vfmadd231ps        ymm4 , ymm0 , ymm7
+  vfmadd231ps        ymm4 , ymm1 , ymm8
+  vfmadd231ps        ymm5 , ymm2 , ymm7
+  vfmadd231ps        ymm5 , ymm3 , ymm8
+
+  vmovups            yword[C] , ymm4
+  vmovups            yword[C + r11] , ymm5
+
+  add                C    , $20
+  add                B    , $20
+  dec                rax
+  jnz                @while1
+
+@rem:
+  mov                rax  , N
+  and                rax  , 7
+  jz                 @done
+
+  vmovd              xmm6 , eax
+  vpbroadcastd       ymm6 , xmm6
+  vpcmpgtd           ymm6 , ymm6 , YMMD[rip]
+
+  vmaskmovps         ymm4 , ymm6 , yword [C]
+  vmaskmovps         ymm5 , ymm6 , yword [C + r11]
+
+  vmaskmovps         ymm7 , ymm6 , yword [B]
+  vmaskmovps         ymm8 , ymm6 , yword [B + r10]
+  vfmadd231ps        ymm4 , ymm0 , ymm7
+  vfmadd231ps        ymm4 , ymm1 , ymm8
+  vfmadd231ps        ymm5 , ymm2 , ymm7
+  vfmadd231ps        ymm5 , ymm3 , ymm8
+
+  vmaskmovps         yword[C] , ymm6 , ymm4
+  vmaskmovps         yword[C + r11] , ymm6 , ymm5
+
+@done:
+  vzeroupper
+{$ifdef MSWINDOWS}
+  vmovdqu            xmm6 , [rsp + $00]
+  vmovdqu            xmm7 , [rsp + $10]
+  vmovdqu            xmm8 , [rsp + $20]
+  vmovdqu            xmm9 , [rsp + $30]
+  vmovdqu            xmm10, [rsp + $40]
+  vmovdqu            xmm11, [rsp + $50]
+  vmovdqu            xmm12, [rsp + $60]
+  vmovdqu            xmm13, [rsp + $70]
+  vmovdqu            xmm14, [rsp + $80]
+  vmovdqu            xmm15, [rsp + $90]
+  add                rsp  , $10*10
+{$endif}
+  pop r10
+end;
+
+procedure sAxpy_4x2_avx2(const A, B, C: PSingle; const N, lda, ldb, ldc:Int64; const alpha:single);assembler;
+asm
+  push               r10
+  {$ifdef MSWINDOWS}
+  sub                rsp  , $10*10
+  vmovdqu            [rsp + $00] , xmm6
+  vmovdqu            [rsp + $10] , xmm7
+  vmovdqu            [rsp + $20] , xmm8
+  vmovdqu            [rsp + $30] , xmm9
+  vmovdqu            [rsp + $40] , xmm10
+  vmovdqu            [rsp + $50] , xmm11
+  vmovdqu            [rsp + $60] , xmm12
+  vmovdqu            [rsp + $70] , xmm13
+  vmovdqu            [rsp + $80] , xmm14
+  vmovdqu            [rsp + $90] , xmm15
+  {$endif}
+
+  mov                rax  , lda
+  imul               rax  , sizeof(single)
+
+  movss              xmm4 , alpha
+  vmulss             xmm0 , xmm4 , dword[A]
+  vmulss             xmm1 , xmm4 , dword[A + 4]
+  vmulss             xmm2 , xmm4 , dword[A + rax]
+  vmulss             xmm3 , xmm4 , dword[A + rax + 4]
+  lea                A    , [A + 2*rax]
+  vmulss             xmm8 , xmm4 , dword[A]
+  vmulss             xmm9 , xmm4 , dword[A + 4]
+  vmulss             xmm10, xmm4 , dword[A + rax]
+  vmulss             xmm11, xmm4 , dword[A + rax + 4]
+
+
+  vbroadcastss       ymm0  , xmm0
+  vbroadcastss       ymm1  , xmm1
+  vbroadcastss       ymm2  , xmm2
+  vbroadcastss       ymm3  , xmm3
+
+  vbroadcastss       ymm8  , xmm8
+  vbroadcastss       ymm9  , xmm9
+  vbroadcastss       ymm10 , xmm10
+  vbroadcastss       ymm11 , xmm11
+
+  mov                r11  , ldc
+  imul               r11  , sizeof(single)
+  mov                r10  , ldb
+  imul               r10  , sizeof(single)
+
+  mov                rax  , N
+  shr                rax  , 5    // N div 32
+  jz                 @rem2
+
+@while2:
+
+  vmovups            ymm4 , yword [C]
+  vmovups            ymm5 , yword [C + $20*1]
+  vmovups            ymm6 , yword [C + $20*2]
+  vmovups            ymm7 , yword [C + $20*3]
+
+  vfmadd231ps        ymm4 , ymm0 , yword [B]
+  vfmadd231ps        ymm5 , ymm0 , yword [B + $20*1]
+  vfmadd231ps        ymm6 , ymm0 , yword [B + $20*2]
+  vfmadd231ps        ymm7 , ymm0 , yword [B + $20*3]
+
+  vfmadd231ps        ymm4 , ymm1 , yword [B + r10]
+  vfmadd231ps        ymm5 , ymm1 , yword [B + r10 + $20*1]
+  vfmadd231ps        ymm6 , ymm1 , yword [B + r10 + $20*2]
+  vfmadd231ps        ymm7 , ymm1 , yword [B + r10 + $20*3]
+
+  vmovups            yword [C] , ymm4
+  vmovups            yword [C + $20*1] , ymm5
+  vmovups            yword [C + $20*2] , ymm6
+  vmovups            yword [C + $20*3] , ymm7
+
+  vmovups            ymm4 , yword [C + r11]
+  vmovups            ymm5 , yword [C + r11 + $20*1]
+  vmovups            ymm6 , yword [C + r11 + $20*2]
+  vmovups            ymm7 , yword [C + r11 + $20*3]
+
+  vfmadd231ps        ymm4 , ymm2 , yword [B]
+  vfmadd231ps        ymm5 , ymm2 , yword [B + $20*1]
+  vfmadd231ps        ymm6 , ymm2 , yword [B + $20*2]
+  vfmadd231ps        ymm7 , ymm2 , yword [B + $20*3]
+
+  vfmadd231ps        ymm4 , ymm3 , yword [B + r10]
+  vfmadd231ps        ymm5 , ymm3 , yword [B + r10 + $20*1]
+  vfmadd231ps        ymm6 , ymm3 , yword [B + r10 + $20*2]
+  vfmadd231ps        ymm7 , ymm3 , yword [B + r10 + $20*3]
+
+  vmovups            yword [C + r11] , ymm4
+  vmovups            yword [C + r11 + $20*1] , ymm5
+  vmovups            yword [C + r11 + $20*2] , ymm6
+  vmovups            yword [C + r11 + $20*3] , ymm7
+
+// next two rows of C
+  push               C
+  lea                C    , [C + 2*r11]
+  vmovups            ymm4 , yword [C]
+  vmovups            ymm5 , yword [C + $20*1]
+  vmovups            ymm6 , yword [C + $20*2]
+  vmovups            ymm7 , yword [C + $20*3]
+
+  vfmadd231ps        ymm4 , ymm8 , yword [B]
+  vfmadd231ps        ymm5 , ymm8 , yword [B + $20*1]
+  vfmadd231ps        ymm6 , ymm8 , yword [B + $20*2]
+  vfmadd231ps        ymm7 , ymm8 , yword [B + $20*3]
+
+  vfmadd231ps        ymm4 , ymm9 , yword [B + r10]
+  vfmadd231ps        ymm5 , ymm9 , yword [B + r10 + $20*1]
+  vfmadd231ps        ymm6 , ymm9 , yword [B + r10 + $20*2]
+  vfmadd231ps        ymm7 , ymm9 , yword [B + r10 + $20*3]
+
+  vmovups            yword [C] , ymm4
+  vmovups            yword [C + $20*1] , ymm5
+  vmovups            yword [C + $20*2] , ymm6
+  vmovups            yword [C + $20*3] , ymm7
+
+  vmovups            ymm4 , yword [C + r11]
+  vmovups            ymm5 , yword [C + r11 + $20*1]
+  vmovups            ymm6 , yword [C + r11 + $20*2]
+  vmovups            ymm7 , yword [C + r11 + $20*3]
+
+  vfmadd231ps        ymm4 , ymm10, yword [B]
+  vfmadd231ps        ymm5 , ymm10, yword [B + $20*1]
+  vfmadd231ps        ymm6 , ymm10, yword [B + $20*2]
+  vfmadd231ps        ymm7 , ymm10, yword [B + $20*3]
+
+  vfmadd231ps        ymm4 , ymm11, yword [B + r10]
+  vfmadd231ps        ymm5 , ymm11, yword [B + r10 + $20*1]
+  vfmadd231ps        ymm6 , ymm11, yword [B + r10 + $20*2]
+  vfmadd231ps        ymm7 , ymm11, yword [B + r10 + $20*3]
+
+  vmovups            yword [C + r11] , ymm4
+  vmovups            yword [C + r11 + $20*1] , ymm5
+  vmovups            yword [C + r11 + $20*2] , ymm6
+  vmovups            yword [C + r11 + $20*3] , ymm7
+  pop                C
+
+
+
+  add                C    , $20*4
+  add                B    , $20*4
+  dec                rax
+  jnz                @while2
+
+
+@rem2:
+  mov                rax  , N
+  and                rax  , 31
+  shr                rax  , 3    // N div 8
+  jz                 @rem
+
+@while1:
+  vmovups            ymm12, yword [B]
+  vmovups            ymm13, yword [B + r10]
+
+  vmovups            ymm4 , yword [C]
+  vmovups            ymm5 , yword [C + r11]
+
+  vfmadd231ps        ymm4 , ymm0 , ymm12
+  vfmadd231ps        ymm4 , ymm1 , ymm13
+  vfmadd231ps        ymm5 , ymm2 , ymm12
+  vfmadd231ps        ymm5 , ymm3 , ymm13
+
+  vmovups            yword[C] , ymm4
+  vmovups            yword[C + r11] , ymm5
+
+  // next two rows of C
+  push               C
+  lea                C    , [C + 2*r11]
+  vmovups            ymm4 , yword [C]
+  vmovups            ymm5 , yword [C + r11]
+
+  vfmadd231ps        ymm4 , ymm8 , ymm12
+  vfmadd231ps        ymm4 , ymm9 , ymm13
+  vfmadd231ps        ymm5 , ymm10, ymm12
+  vfmadd231ps        ymm5 , ymm11, ymm13
+
+  vmovups            yword[C] , ymm4
+  vmovups            yword[C + r11] , ymm5
+  pop                C
+
+  add                C    , $20
+  add                B    , $20
+  dec                rax
+  jnz                @while1
+
+@rem:
+  mov                rax  , N
+  and                rax  , 7
+  jz                 @done
+
+  vmovd              xmm6 , eax
+  vpbroadcastd       ymm6 , xmm6
+  vpcmpgtd           ymm6 , ymm6 , YMMD[rip]
+
+  vmaskmovps         ymm12, ymm6 , yword [B]
+  vmaskmovps         ymm13, ymm6 , yword [B + r10]
+
+  vmaskmovps         ymm4 , ymm6 , yword [C]
+  vmaskmovps         ymm5 , ymm6 , yword [C + r11]
+
+  vfmadd231ps        ymm4 , ymm0 , ymm12
+  vfmadd231ps        ymm4 , ymm1 , ymm13
+  vfmadd231ps        ymm5 , ymm2 , ymm12
+  vfmadd231ps        ymm5 , ymm3 , ymm13
+
+  vmaskmovps         yword[C] , ymm6 , ymm4
+  vmaskmovps         yword[C + r11] , ymm6 , ymm5
+
+  push               C    // cosmatic
+  lea                C    , [C + 2*r11]
+
+  vmaskmovps         ymm4 , ymm6 , yword [C]
+  vmaskmovps         ymm5 , ymm6 , yword [C + r11]
+
+  vfmadd231ps        ymm4 , ymm8 , ymm12
+  vfmadd231ps        ymm4 , ymm9 , ymm13
+  vfmadd231ps        ymm5 , ymm10, ymm12
+  vfmadd231ps        ymm5 , ymm11, ymm13
+
+  vmaskmovps         yword[C] , ymm6 , ymm4
+  vmaskmovps         yword[C + r11] , ymm6 , ymm5
+  pop                C    // cozmatic
+
+@done:
+  vzeroupper
+{$ifdef MSWINDOWS}
+  vmovdqu            xmm6 , [rsp + $00]
+  vmovdqu            xmm7 , [rsp + $10]
+  vmovdqu            xmm8 , [rsp + $20]
+  vmovdqu            xmm9 , [rsp + $30]
+  vmovdqu            xmm10, [rsp + $40]
+  vmovdqu            xmm11, [rsp + $50]
+  vmovdqu            xmm12, [rsp + $60]
+  vmovdqu            xmm13, [rsp + $70]
+  vmovdqu            xmm14, [rsp + $80]
+  vmovdqu            xmm15, [rsp + $90]
+  add                rsp  , $10*10
+{$endif}
+  pop                r10
+end;
+
+(*
+procedure sAxpy_2x2_avx2(const A, B, C: PSingle; const N, lda, ldb, ldc:NativeInt; const alpha:single);assembler;
+asm
+
+  {$ifdef MSWINDOWS}
+  sub                rsp  , $10*10
+  vmovdqu            [rsp + $00] , xmm6
+  vmovdqu            [rsp + $10] , xmm7
+  vmovdqu            [rsp + $20] , xmm8
+  vmovdqu            [rsp + $30] , xmm9
+  vmovdqu            [rsp + $40] , xmm10
+  vmovdqu            [rsp + $50] , xmm11
+  vmovdqu            [rsp + $60] , xmm12
+  vmovdqu            [rsp + $70] , xmm13
+  vmovdqu            [rsp + $80] , xmm14
+  vmovdqu            [rsp + $90] , xmm15
+  {$endif}
+
+  vmovss             xmm4 , dword [alpha]
+  vmulss             xmm0 , xmm4 , dword[A]
+  vmulss             xmm1 , xmm4 , dword[A + $4]
+  mov                rax  , lda
+  vmulss             xmm2 , xmm4 , dword[A + rax*4]
+  vmulss             xmm3 , xmm4 , dword[A + rax*4 + $4]
+
+  vbroadcastss       ymm0 , xmm0
+  vbroadcastss       ymm1 , xmm1
+  vbroadcastss       ymm2 , xmm2
+  vbroadcastss       ymm3 , xmm3
+
+  mov                r10  , ldb
+  imul               r10  , sizeof(single)
+  mov                r11  , ldc
+  imul               r11  , sizeof(single)
+
+  mov                rax  , N
+  shr                rax  , 5    // N div 8
+  jz                 @rem2
+
+@while2:
+
+  vmovups            ymm4 , yword [C]
+  vmovups            ymm5 , yword [C + $20*1]
+  vmovups            ymm6 , yword [C + $20*2]
+  vmovups            ymm7 , yword [C + $20*3]
+
+  vmovups            ymm8 , yword [C + r11]
+  vmovups            ymm9 , yword [C + r11 + $20*1]
+  vmovups            ymm10, yword [C + r11 + $20*2]
+  vmovups            ymm11, yword [C + r11 + $20*3]
+
+
+  vfmadd231ps        ymm4 , ymm0 , yword [B]
+  vfmadd231ps        ymm5 , ymm0 , yword [B + $20*1]
+  vfmadd231ps        ymm6 , ymm0 , yword [B + $20*2]
+  vfmadd231ps        ymm7 , ymm0 , yword [B + $20*3]
+
+  vfmadd231ps        ymm4 , ymm1 , yword [B + r10]
+  vfmadd231ps        ymm5 , ymm1 , yword [B + r10 + $20*1]
+  vfmadd231ps        ymm6 , ymm1 , yword [B + r10 + $20*2]
+  vfmadd231ps        ymm7 , ymm1 , yword [B + r10 + $20*3]
+
+  vfmadd231ps        ymm8 , ymm2 , yword [B]
+  vfmadd231ps        ymm9 , ymm2 , yword [B + $20*1]
+  vfmadd231ps        ymm10, ymm2 , yword [B + $20*2]
+  vfmadd231ps        ymm11, ymm2 , yword [B + $20*3]
+
+  vfmadd231ps        ymm8 , ymm3 , yword [B + r10]
+  vfmadd231ps        ymm9 , ymm3 , yword [B + r10 + $20*1]
+  vfmadd231ps        ymm10, ymm3 , yword [B + r10 + $20*2]
+  vfmadd231ps        ymm11, ymm3 , yword [B + r10 + $20*3]
+
+
+  vmovups            yword [C] , ymm4
+  vmovups            yword [C + $20*1] , ymm5
+  vmovups            yword [C + $20*2] , ymm6
+  vmovups            yword [C + $20*3] , ymm7
+
+  vmovups            yword [C + r11] , ymm8
+  vmovups            yword [C + r11 + $20*1] , ymm9
+  vmovups            yword [C + r11 + $20*2] , ymm10
+  vmovups            yword [C + r11 + $20*3] , ymm11
+
+
+  add                C    , $20*4
+  add                B    , $20*4
+  dec                rax
+  jnz                @while2
+
+
+@rem2:
+  mov                rax  , N
+  shr                rax  , 3    // N div 8
+  jz                 @rem
+
+@while1:
+  vmovups            ymm7 , yword [B]
+  vmovups            ymm8 , yword [B + r10]
+  vmovups            ymm4 , yword [C]
+  vmovups            ymm5 , yword [C + r11]
+
+  vfmadd231ps        ymm4 , ymm0 , ymm7
+  vfmadd231ps        ymm4 , ymm1 , ymm8
+  vfmadd231ps        ymm5 , ymm2 , ymm7
+  vfmadd231ps        ymm5 , ymm3 , ymm8
+
+  vmovups            yword[C] , ymm4
+  vmovups            yword[C + r11] , ymm5
+
+  add                C    , $20
+  add                B    , $20
+  dec                rax
+  jnz                @while1
+
+@rem:
+  mov                rax  , N
+  and                rax  , 7
+  jz                 @done
+
+  vmovd              xmm6 , eax
+  vpbroadcastd       ymm6 , xmm6
+  vpcmpgtd           ymm6 , ymm6 , YMMD[rip]
+
+  vmaskmovps         ymm4 , ymm6 , yword [C]
+  vmaskmovps         ymm5 , ymm6 , yword [C + r11]
+
+  vmaskmovps         ymm7 , ymm6 , yword [B]
+  vmaskmovps         ymm8 , ymm6 , yword [B + r10]
+  vfmadd231ps        ymm4 , ymm0 , ymm7
+  vfmadd231ps        ymm4 , ymm1 , ymm8
+  vfmadd231ps        ymm5 , ymm2 , ymm7
+  vfmadd231ps        ymm5 , ymm3 , ymm8
+
+  vmaskmovps         yword[C] , ymm6 , ymm4
+  vmaskmovps         yword[C + r11] , ymm6 , ymm5
+
+@done:
+  vzeroupper
+{$ifdef MSWINDOWS}
+  vmovdqu            xmm6 , [rsp + $00]
+  vmovdqu            xmm7 , [rsp + $10]
+  vmovdqu            xmm8 , [rsp + $20]
+  vmovdqu            xmm9 , [rsp + $30]
+  vmovdqu            xmm10, [rsp + $40]
+  vmovdqu            xmm11, [rsp + $50]
+  vmovdqu            xmm12, [rsp + $60]
+  vmovdqu            xmm13, [rsp + $70]
+  vmovdqu            xmm14, [rsp + $80]
+  vmovdqu            xmm15, [rsp + $90]
+  add                rsp  , $10*10
+{$endif}
+end;
+*)
+
+procedure sDot_4x4_avx2(const A, B, C: PSingle; K, lda, ldb, ldc:NativeInt; const alpha:single); assembler;
+// C[4x4] += alpha * A(4xK) * BT(Kx4), register-resident v2
+// pass 1: rows 0,1 (accums ymm0..ymm7 = 2 rows x 4 cols)
+// pass 2: rows 2,3 (same registers reused)
+asm
+  push          r12
+  push          r10
+{$ifdef MSWINDOWS}
+  sub           rsp  , $10*10
+  vmovdqu       [rsp + $00] , xmm6
+  vmovdqu       [rsp + $10] , xmm7
+  vmovdqu       [rsp + $20] , xmm8
+  vmovdqu       [rsp + $30] , xmm9
+  vmovdqu       [rsp + $40] , xmm10
+  vmovdqu       [rsp + $50] , xmm11
+  vmovdqu       [rsp + $60] , xmm12
+  vmovdqu       [rsp + $70] , xmm13
+  vmovdqu       [rsp + $80] , xmm14
+  vmovdqu       [rsp + $90] , xmm15
+{$endif}
+  sub           rsp  , $10
+  movss         xmm10, alpha
+  vmovss        [rsp], xmm10
+  // ================= PASS 1 : rows 0,1 =================
+  vxorps        ymm0 , ymm0 , ymm0
+  vxorps        ymm1 , ymm1 , ymm1
+  vxorps        ymm2 , ymm2 , ymm2
+  vxorps        ymm3 , ymm3 , ymm3
+  vxorps        ymm4 , ymm4 , ymm4
+  vxorps        ymm5 , ymm5 , ymm5
+  vxorps        ymm6 , ymm6 , ymm6
+  vxorps        ymm7 , ymm7 , ymm7
+  xor           r12  , r12
+  mov           r11  , K
+  shr           r11  , 3
+  jz            @rem1
+
+@loop1:
+  mov           r10  , r12
+  prefetcht1    yword [A  + r10*4 + $20]     // nex chunk
+  vmovups       ymm8 , yword [A + r10*4]     // A row 0 chunk
+  add           r10  , lda
+  prefetcht1    yword [A  + r10*4 + $20]     // A row 1, next chunk
+  vmovups       ymm9 , yword [A + r10*4]     // A row 1 chunk
+  mov           rax  , r12
+  prefetcht1    yword [B  + rax*4 + $20]     // B col 0, next chunk
+  vmovups       ymm10, yword [B + rax*4]     // B col 0 chunk
+  add           rax  , ldb
+  prefetcht1    yword [B  + rax*4 + $20]
+  vmovups       ymm11, yword [B + rax*4]
+  add           rax  , ldb
+  prefetcht1    yword [B  + rax*4 + $20]
+  vmovups       ymm12, yword [B + rax*4]
+  add           rax  , ldb
+  prefetcht1    yword [B  + rax*4 + $20]
+  vmovups       ymm13, yword [B + rax*4]
+  vfmadd231ps   ymm0 , ymm8 , ymm10
+  vfmadd231ps   ymm1 , ymm8 , ymm11
+  vfmadd231ps   ymm2 , ymm8 , ymm12
+  vfmadd231ps   ymm3 , ymm8 , ymm13
+  vfmadd231ps   ymm4 , ymm9 , ymm10
+  vfmadd231ps   ymm5 , ymm9 , ymm11
+  vfmadd231ps   ymm6 , ymm9 , ymm12
+  vfmadd231ps   ymm7 , ymm9 , ymm13
+  add           r12  , 8
+  dec           r11
+  jnz           @loop1
+
+@rem1:
+  mov           rax  , K
+  and           rax  , 7
+  jz            @reduce1
+  vmovd         xmm10, eax
+  vpbroadcastd  ymm10, xmm10
+  vpcmpgtd      ymm10, ymm10 , YMMD[rip]
+  mov           r10  , r12
+  vmaskmovps    ymm8 , ymm10 , yword [A + r10*4]
+  add           r10  , lda
+  vmaskmovps    ymm9 , ymm10 , yword [A + r10*4]
+  mov           rax  , r12
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm0 , ymm8 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm1 , ymm8 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm2 , ymm8 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  vfmadd231ps   ymm3 , ymm8 , ymm11
+  mov           rax  , r12
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm4 , ymm9 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm5 , ymm9 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm6 , ymm9 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  vfmadd231ps   ymm7 , ymm9 , ymm11
+
+@reduce1:
+  // row 0  -> C + 0
+  vextractf128  xmm12, ymm0 , $1
+  vextractf128  xmm13, ymm1 , $1
+  vextractf128  xmm14, ymm2 , $1
+  vextractf128  xmm15, ymm3 , $1
+  vaddps        xmm0 , xmm0 , xmm12
+  vaddps        xmm1 , xmm1 , xmm13
+  vaddps        xmm2 , xmm2 , xmm14
+  vaddps        xmm3 , xmm3 , xmm15
+  vhaddps       xmm0 , xmm0 , xmm0
+  vhaddps       xmm1 , xmm1 , xmm1
+  vhaddps       xmm2 , xmm2 , xmm2
+  vhaddps       xmm3 , xmm3 , xmm3
+  vhaddps       xmm0 , xmm0 , xmm0
+  vhaddps       xmm1 , xmm1 , xmm1
+  vhaddps       xmm2 , xmm2 , xmm2
+  vhaddps       xmm3 , xmm3 , xmm3
+  vinsertps     xmm11 , xmm11 ,xmm0 , $00
+  vinsertps     xmm11 , xmm11 ,xmm1 , $10
+  vinsertps     xmm11 , xmm11 ,xmm2 , $20
+  vinsertps     xmm11 , xmm11 ,xmm3 , $30
+  movss         xmm10 , [rsp]
+  vbroadcastss  xmm10 , xmm10
+  xor           r10   , r10
+  vfmadd213ps   xmm11 , xmm10 , oword[C + r10*4]
+  vmovups       oword[C + r10*4] , xmm11
+  // row 1  -> C + ldc
+  vextractf128  xmm12 , ymm4 , $1
+  vextractf128  xmm13 , ymm5 , $1
+  vextractf128  xmm14 , ymm6 , $1
+  vextractf128  xmm15 , ymm7 , $1
+  vaddps        xmm4  , xmm4 , xmm12
+  vaddps        xmm5  , xmm5 , xmm13
+  vaddps        xmm6  , xmm6 , xmm14
+  vaddps        xmm7  , xmm7 , xmm15
+  vhaddps       xmm4  , xmm4 , xmm4
+  vhaddps       xmm5  , xmm5 , xmm5
+  vhaddps       xmm6  , xmm6 , xmm6
+  vhaddps       xmm7  , xmm7 , xmm7
+  vhaddps       xmm4  , xmm4 , xmm4
+  vhaddps       xmm5  , xmm5 , xmm5
+  vhaddps       xmm6  , xmm6 , xmm6
+  vhaddps       xmm7  , xmm7 , xmm7
+  vinsertps     xmm11 , xmm11 , xmm4 , $00
+  vinsertps     xmm11 , xmm11 , xmm5 , $10
+  vinsertps     xmm11 , xmm11 , xmm6 , $20
+  vinsertps     xmm11 , xmm11 , xmm7 , $30
+  mov           r10   , ldc
+  vfmadd213ps   xmm11 , xmm10 , oword[C + r10*4]
+  vmovups       oword[C + r10*4] , xmm11
+
+  // ================= PASS 2 : rows 2,3 =================
+  vxorps        ymm0 , ymm0 , ymm0
+  vxorps        ymm1 , ymm1 , ymm1
+  vxorps        ymm2 , ymm2 , ymm2
+  vxorps        ymm3 , ymm3 , ymm3
+  vxorps        ymm4 , ymm4 , ymm4
+  vxorps        ymm5 , ymm5 , ymm5
+  vxorps        ymm6 , ymm6 , ymm6
+  vxorps        ymm7 , ymm7 , ymm7
+  xor           r12  , r12
+  mov           r11  , K
+  shr           r11  , 3
+  jz            @rem2
+
+@loop2:
+  mov           r10  , r12
+  add           r10  , lda
+  add           r10  , lda
+  prefetcht1    yword [A  + r10*4 + $20]           // A row 2 nex chunk
+  vmovups       ymm8 , yword [A + r10*4]
+  add           r10  , lda
+  prefetcht1    yword [A  + r10*4 + $20]           // A row 3 nex chunk
+  vmovups       ymm9 , yword [A + r10*4]
+  mov           rax  , r12
+  prefetcht1    yword [B  + rax*4 + $20]
+  vmovups       ymm10, yword [B + rax*4]     // B col 0 chunk
+  add           rax  , ldb
+  prefetcht1    yword [B  + rax*4 + $20]
+  vmovups       ymm11, yword [B + rax*4]     // B col 1 chunk
+  add           rax  , ldb
+  prefetcht1    yword [B  + rax*4 + $20]
+  vmovups       ymm12, yword [B + rax*4]     // B col 2 chunk
+  add           rax  , ldb
+  prefetcht1    yword [B  + rax*4 + $20]
+  vmovups       ymm13, yword [B + rax*4]     // B col 3 chunk
+  vfmadd231ps   ymm0 , ymm8 , ymm10
+  vfmadd231ps   ymm1 , ymm8 , ymm11
+  vfmadd231ps   ymm2 , ymm8 , ymm12
+  vfmadd231ps   ymm3 , ymm8 , ymm13
+  vfmadd231ps   ymm4 , ymm9 , ymm10
+  vfmadd231ps   ymm5 , ymm9 , ymm11
+  vfmadd231ps   ymm6 , ymm9 , ymm12
+  vfmadd231ps   ymm7 , ymm9 , ymm13
+  add           r12  , 8
+  dec           r11
+  jnz           @loop2
+
+@rem2:
+  mov           rax  , K
+  and           rax  , 7
+  jz            @reduce2
+  vmovd         xmm10, eax
+  vpbroadcastd  ymm10, xmm10
+  vpcmpgtd      ymm10, ymm10 , YMMD[rip]
+  mov           r10  , r12
+  add           r10  , lda
+  add           r10  , lda
+  vmaskmovps    ymm8 , ymm10 , yword [A + r10*4]
+  add           r10  , lda
+  vmaskmovps    ymm9 , ymm10 , yword [A + r10*4]
+  mov           rax  , r12
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm0 , ymm8 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm1 , ymm8 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm2 , ymm8 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  vfmadd231ps   ymm3 , ymm8 , ymm11
+  mov           rax  , r12
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm4 , ymm9 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm5 , ymm9 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  add           rax  , ldb
+  vfmadd231ps   ymm6 , ymm9 , ymm11
+  vmaskmovps    ymm11, ymm10 , yword [B + rax*4]
+  vfmadd231ps   ymm7 , ymm9 , ymm11
+
+@reduce2:
+  // row 2  -> C + 2*ldc  (same reduction as row 0/1, C offset 2*ldc)
+  vextractf128  xmm12, ymm0 , $1
+  vextractf128  xmm13, ymm1 , $1
+  vextractf128  xmm14, ymm2 , $1
+  vextractf128  xmm15, ymm3 , $1
+  vaddps        xmm0 , xmm0 , xmm12
+  vaddps        xmm1 , xmm1 , xmm13
+  vaddps        xmm2 , xmm2 , xmm14
+  vaddps        xmm3 , xmm3 , xmm15
+  vhaddps       xmm0 , xmm0 , xmm0
+  vhaddps       xmm1 , xmm1 , xmm1
+  vhaddps       xmm2 , xmm2 , xmm2
+  vhaddps       xmm3 , xmm3 , xmm3
+  vhaddps       xmm0 , xmm0 , xmm0
+  vhaddps       xmm1 , xmm1 , xmm1
+  vhaddps       xmm2 , xmm2 , xmm2
+  vhaddps       xmm3 , xmm3 , xmm3
+  vinsertps     xmm11, xmm11 , xmm0 , $00
+  vinsertps     xmm11, xmm11 , xmm1 , $10
+  vinsertps     xmm11, xmm11 , xmm2 , $20
+  vinsertps     xmm11, xmm11 , xmm3 , $30
+  movss         xmm10, [rsp]
+  vbroadcastss  xmm10, xmm10
+  mov           r10  , ldc
+  add           r10  , ldc
+  vfmadd213ps   xmm11, xmm10 , oword[C + r10*4]
+  vmovups       oword[C + r10*4] , xmm11
+  // row 3  -> C + 3*ldc
+  vextractf128  xmm12, ymm4 , $1
+  vextractf128  xmm13, ymm5 , $1
+  vextractf128  xmm14, ymm6 , $1
+  vextractf128  xmm15, ymm7 , $1
+  vaddps        xmm4 , xmm4  , xmm12
+  vaddps        xmm5 , xmm5  , xmm13
+  vaddps        xmm6 , xmm6  , xmm14
+  vaddps        xmm7 , xmm7  , xmm15
+  vhaddps       xmm4 , xmm4  , xmm4
+  vhaddps       xmm5 , xmm5  , xmm5
+  vhaddps       xmm6 , xmm6  , xmm6
+  vhaddps       xmm7 , xmm7  , xmm7
+  vhaddps       xmm4 , xmm4  , xmm4
+  vhaddps       xmm5 , xmm5  , xmm5
+  vhaddps       xmm6 , xmm6  , xmm6
+  vhaddps       xmm7 , xmm7  , xmm7
+  vinsertps     xmm11 ,xmm11 , xmm4 , $00
+  vinsertps     xmm11 ,xmm11 , xmm5 , $10
+  vinsertps     xmm11 ,xmm11 , xmm6 , $20
+  vinsertps     xmm11 ,xmm11 , xmm7 , $30
+  mov           r10   , ldc
+  add           r10   , ldc
+  add           r10   , ldc
+  vfmadd213ps   xmm11 , xmm10 , oword[C + r10*4]
+  vmovups       oword[C + r10*4] , xmm11
+
+@done:
+  vzeroupper
+  add           rsp  , $10
+{$ifdef MSWINDOWS}
+  vmovdqu       xmm6  , [rsp + $00]
+  vmovdqu       xmm7  , [rsp + $10]
+  vmovdqu       xmm8  , [rsp + $20]
+  vmovdqu       xmm9  , [rsp + $30]
+  vmovdqu       xmm10 , [rsp + $40]
+  vmovdqu       xmm11 , [rsp + $50]
+  vmovdqu       xmm12 , [rsp + $60]
+  vmovdqu       xmm13 , [rsp + $70]
+  vmovdqu       xmm14 , [rsp + $80]
+  vmovdqu       xmm15 , [rsp + $90]
+  add           rsp   , $10*10
+{$endif}
+  pop           rbx
+  pop           r10
   pop           r12
 end;
 
 procedure sDot_x2_avx2(const A, B, C: PSingle; K, ldb:NativeInt; const alpha:single); assembler;
 asm
-
+  push r10
 
   vxorps        ymm1 , ymm1 , ymm1
   vxorps        ymm2 , ymm2 , ymm2
@@ -1854,7 +2819,7 @@ asm
   movss         dword[C], xmm1
   vfmadd213ss   xmm2 , xmm0 , dword[C+4]
   movss         dword[C+4], xmm2
-
+  pop r10
 end;
 
 procedure SingleToBF16_x8_avx2(const src: PSingle; const dst:PBF16);assembler; {$ifdef fpc} nostackframe;{$endif}

@@ -256,7 +256,7 @@ procedure TVAEAttnBlock.forward(var dst: TMemoryBlock; const src: TMemoryBlock;
   var work: TMemoryBlock; const batch, H, W, num_groups: longint);
 var
     ch, spatial, c, i, b: longint;
-    q, k, v, qb, kb, vb, ob, attn_out{, q_ptr, k_ptr, v_ptr, o_ptr}: TMemoryBlock;
+    q, k, v, qb, kb, vb, ob, attn_out: TMemoryBlock;  q_ptr, k_ptr, v_ptr, o_ptr, qb_ptr, kb_ptr, vb_ptr:PQNNFloat;
     scale: QNNFloat;
     q_t, k_t, v_t, o_t, scores: TMemoryBlock;
 begin
@@ -271,9 +271,9 @@ begin
     QNNConv2d(v, work, v_weight, v_bias, ch, ch, H, W, 1, 1, 1, 0, batch);
     scale := 1.0 / sqrt(ch);
     attn_out := v + batch*ch*spatial;
-    q_t    := TMemoryBlock.Create([spatial, ch], 'VAE_FW_Q ' + TGUID.NewGuid.ToString()); //q_ptr := q_t;
-    k_t    := TMemoryBlock.Create([spatial, ch], 'VAE_FW_K ' + TGUID.NewGuid.ToString()); //k_ptr := k_t;
-    v_t    := TMemoryBlock.Create([spatial, ch], 'VAE_FW_V ' + TGUID.NewGuid.ToString()); //v_ptr := v_t;
+    q_t    := TMemoryBlock.Create([spatial, ch], 'VAE_FW_Q ' + TGUID.NewGuid.ToString()); q_ptr := q_t;
+    k_t    := TMemoryBlock.Create([spatial, ch], 'VAE_FW_K ' + TGUID.NewGuid.ToString()); k_ptr := k_t;
+    v_t    := TMemoryBlock.Create([spatial, ch], 'VAE_FW_V ' + TGUID.NewGuid.ToString()); v_ptr := v_t;
     o_t    := TMemoryBlock.Create([spatial, ch], 'VAE_FW_O ' + TGUID.NewGuid.ToString()); //o_ptr := o_t;
     scores := TMemoryBlock.Create([spatial, spatial], 'VAE_FQ_SCORES ' + TGUID.NewGuid.ToString());
     for b := 0 to batch -1 do
@@ -281,6 +281,11 @@ begin
             qb := Q + b * ch * spatial;
             kb := K + b * ch * spatial;
             vb := V + b * ch * spatial;
+
+            //qb_ptr := Q + b * ch * spatial;
+            //kb_ptr := K + b * ch * spatial;
+            //vb_ptr := V + b * ch * spatial;
+
             ob := attn_out + b * ch * spatial;
             QNNMatTranspose(q_t, qb, ch, spatial);
             QNNScaleInplace(q_t, scale, ch*spatial);
@@ -290,9 +295,9 @@ begin
             //for c := 0 to ch -1 do
             //    for i := 0 to spatial -1 do
             //        begin
-            //            q_ptr[i * ch+c] := qb[c * spatial+i] * scale;
-            //            k_ptr[i * ch+c] := kb[c * spatial+i];
-            //            v_ptr[i * ch+c] := vb[c * spatial+i]
+            //            q_ptr[i * ch+c] := qb_ptr[c * spatial+i] * scale;
+            //            k_ptr[i * ch+c] := kb_ptr[c * spatial+i];
+            //            v_ptr[i * ch+c] := vb_ptr[c * spatial+i]
             //        end;
             QNNMatMulNT(scores, q_t, k_t, spatial, ch, spatial);
             QNNSoftmaxRows(scores, spatial, spatial);
@@ -489,12 +494,13 @@ function TVAE.decode(const latent: TMemoryBlock; const batch, latent_h,
   latent_w: longint): TQNNImage;
 //const ch_mult : array[0..3] of integer = (1, 2, 4, 4);
 var
-    x, work:TMemoryBlock; mean_ptr, var_ptr: PQNNFloat;
+    x, work:TMemoryBlock; mean_ptr, var_ptr, x_ptr: PQNNFloat;
     lat_ch, z_spatial, n, i, b, c, idx, unpatch_h, unpatch_w, cur_w, cur_h, mid_ch, progress,
      total_blocks, block_idx, up_idx, level, ch_out, r, new_h, new_w, out_ch, H, W, y, ch: longint;
     mean, std, val: single;
 
 begin
+    //setGemmDebug(true);
     if assigned(phase_callback) then
         phase_callback('VAE Decode', false);
     //if not work1.isAssigned() then work1:=TMemoryBlock.Create( , 'VAE_WORK1');
@@ -514,18 +520,18 @@ begin
     //if x.size < product(x.shape) then x.reSize(x.shape, latent.DataType);
     QNNCopy(x, latent, batch * lat_ch * z_spatial);
 //printCompare( batch * lat_ch * z_spatial, x, readTensor());
+    x_ptr := x;
     if scaling_factor <> 0.0 then
         QNNFusedScaleBias(x, x, 1/scaling_factor, shift_factor, batch*lat_ch*z_spatial)
         //begin
         //    n := batch * lat_ch * z_spatial;
         //    for i := 0 to n -1 do
-        //        x[i] := x[i]/scaling_factor + shift_factor
+        //        x_ptr[i] := x_ptr[i]/scaling_factor + shift_factor
         //end
     else begin
         //QNNBatchNorm(x, x, bn_mean, bn_var, nil, nil, batch, lat_ch, latent_h, latent_w);
         mean_ptr := bn_mean;
         var_ptr := bn_var;
-
         for c := 0 to lat_ch -1 do begin
             mean := mean_ptr[c];
             std := sqrt(var_ptr[c]+eps);
@@ -534,7 +540,7 @@ begin
                 //for i := 0 to z_spatial -1 do
                 //    begin
                 //        idx := b * lat_ch * z_spatial+c * z_spatial+i;
-                //        x[idx] := x[idx] * std + mean
+                //        x_ptr[idx] := x_ptr[idx] * std + mean
                 //    end
         end;
     end;
@@ -645,7 +651,7 @@ begin
     //    end;
     if assigned(phase_callback) then
         phase_callback('VAE Decode', true);
-
+    //setGemmDebug(false);
 end;
 
 procedure TVAE.decode(const dst, latent: TMemoryBlock; const batch, latent_h,

@@ -32,6 +32,19 @@ type
 
   FP16  = type word;
   PFP16 = ^FP16;
+
+  TReduceFunc = function(const a, b: Single): Single;
+  TReduceOp = (ropSum, ropMax, ropMin, ropProd);
+  // [NEW:QNNBroadcastCombineVec] run/vector callback: dst[i] = op(src1[i*s1], src2[i*s2]), 0 <= i < N (dst is always contiguous)
+  TCombineVecCb = procedure(const N: longint; const dst: PSingle; const src1, src2: PSingle; const src1Stride, src2Stride: longint);
+  // [NEW:QNNReduceVec] vector-run reduce callback: reduces N strided src elements
+  // (src[0], src[s], src[2s], ...) to a single value; N >= 1 (a single-element run
+  // returns that element unchanged). Function form so it can wrap SIMD folds
+  // (QNNSum/QNNMax-style). Multi-axis slices that cannot be captured in ONE strided
+  // run are decomposed into several fibers whose partials are recombined with a
+  // TReduceFunc pair-combiner (also passed to QNNReduce), still buffer-free.
+  TReduceVecCb = function(const N: longint; const src: PSingle; const srcStride: longint): Single;
+
 //{$endif}
 
 {$if not defined(USE_MULTITHREADING)}
@@ -167,7 +180,7 @@ type
       device   : TQNNDevice;
       name : string;
   const
-      ERRSTR_CAST_ARRAY = 'MemoryBlock with non zero offset cannot be casted to an Array';
+      ERRSTR_CAST_ARRAY = 'ERROR : MemoryBlock with non zero offset cannot be casted to an Array';
       ERRSTR_CAST_TYPE = 'ERROR : Data is not of ';
   private
       constructor Create(const aSize:NativeInt; const aName:string; const dType:TQNNDataType = QNN_DEFAULT_DATATYPE; const src : pointer =nil);           overload;// do not use
@@ -1606,6 +1619,25 @@ begin
   result.offset:= src.offset + aOffset;
 end;
 
+function countDiff(const N: Int64; const A, B:PSingle; const eps:single = 0.001):int64;
+var i, c:int64;
+  v:single;
+begin
+  result := 0;
+  for i:= 0 to N-1 do begin
+    //if (A[i]-B[i]) > eps then
+    //  inc(result)
+    v:= math.max(A[i], B[i]);
+    if v<>0 then begin
+      if (A[i]-B[i])/v>eps then
+        inc(result)
+    end else
+      if (A[i]-B[i]) > eps then
+        inc(result)
+
+  end;
+end;
+
 procedure TMemoryBlock.printCompare(const src:TMemoryBlock; const isSumSqrDiff:boolean =false);
 var md,src1,src2: single;
 begin
@@ -1622,7 +1654,7 @@ begin
         //if md<>0 then begin
         //  src.print(psSIXELDithered, 3);
         //end;
-        writeln('MaxAbsDiff :', md:1:5, ' max src1 :', src1:1:6, ' max src2:', src2:1:6);
+        writeln('MaxAbsDiff:', md:1:5, ', values = src1:', src1:1:6, '  src2:', src2:1:6, ', discrepancy: ', 100*countDiff(count, Self, src)/count:1:2,'%');
       end;
     end
     else

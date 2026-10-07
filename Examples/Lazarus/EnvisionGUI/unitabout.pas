@@ -49,7 +49,7 @@ end;
 
 procedure TfrmAbout.FormPaint(Sender: TObject);
 begin
-  Canvas.GradientFill(ClientRect, $000044, $440000, TGradientDirection.gdVertical);
+  Canvas.GradientFill(ClientRect, $440000, $000044, TGradientDirection.gdVertical);
   Canvas.Pen.Color:=$CCCCCC;
   Canvas.Pen.Width:=1;
   Canvas.Brush.Style:=bsClear;

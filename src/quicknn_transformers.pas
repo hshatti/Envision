@@ -356,7 +356,7 @@ type
       const schedule: TMemoryBlock; const num_steps: longint;
       const progress_callback:TProgressCallback): TMemoryBlock; overload;
 
-    // simplist distilled with one latent image
+    // simplest distilled with one latent image
     function sampleEuler(const z: TMemoryBlock;
       const batch, channels, h, w: longint;
       const ref_latent: TMemoryBlock; const ref_h, ref_w, t_offset: longint;
@@ -491,7 +491,7 @@ type
       final_layer : TFinalZi;
 
       (* CPU mmap mode: keep shard files open and use direct f32 pointers. *)
-      mmap_f32_weights : boolean;
+      useMMap : boolean;
       sf_files : TSafeTensorFiles;
       num_sf_files : longint;
 
@@ -521,7 +521,7 @@ type
       procedure applyRope(const dst:PQNNFloat; const pos_ids:PLongint; const seq, n_heads:longint);
       procedure timeStepEmbed(const dst:TMemoryBlock; const t:QNNFloat);
       function sampleEuler(const z:TMemoryBlock; const batch{, channels}, h, w, patch_size:longint; const cap_feats:TMemoryBlock;const cap_seq:longint; const schedule:PQNNFloat; const num_steps:longint; const progress_callback:TStepCallback = nil):TMemoryBlock;
-      procedure load(const modelDir: string; const adim, an_heads, an_layers, an_refiner, acap_feat_dim, ain_channels, apatch_size: longint; const arope_theta: QNNFloat; const aAxes_dims: Plongint; const useMMAP:boolean = true);
+      procedure load(const modelDir: string; const adim, an_heads, an_layers, an_refiner, acap_feat_dim, ain_channels, apatch_size: longint; const arope_theta: QNNFloat; const aAxes_dims: Plongint; const aUseMMAP:boolean = true);
       function isLoaded():boolean;
       procedure free();
   end;
@@ -2669,14 +2669,18 @@ begin
 
     (* 5. Noise refiner: image-only self-attention with modulation *)
     for i := 0 to n_refiner-1 do begin
+        //noise_refiner[i].load(sf_files, format('noise_refiner.%d', [i]), true, useMMap);
         blockForward(img_emb, noise_refiner[i], pointer(img_pos), nil, t_embMem, img_padded);
+        //noise_refiner[i].free;
         if assigned(substep_callback) then
             substep_callback(SUBSTEP_DOUBLE_BLOCK, i, refiner_total);
     end;
 
     (* 6. Context refiner: caption-only self-attention without modulation *)
     for i := 0 to n_refiner-1 do begin
+        //context_refiner[i].load(sf_files, format('context_refiner.%d', [i]), false, useMMap);
         blockForward(cap_emb, context_refiner[i], pointer(cap_pos), nil, default(TMemoryBlock), cap_padded);
+        //context_refiner[i].free();
         if assigned(substep_callback) then
             substep_callback(SUBSTEP_DOUBLE_BLOCK, n_refiner + i, refiner_total);
     end;
@@ -2695,7 +2699,9 @@ begin
 
     (* 8. Main transformer layers *)
     for i := 0 to n_layers-1 do begin
+        //layers[i].load(sf_files, format('layers.%d', [i]), true, useMMap);
         blockForward(unified, layers[i], pointer(unified_pos), nil, t_embMem, unified_seq);
+        //layers[i].free();
         if assigned(substep_callback) then
             substep_callback(SUBSTEP_SINGLE_BLOCK, i, n_layers);
     end;
@@ -2862,7 +2868,7 @@ end;
 
 procedure TTransformerZI.load(const modelDir: string; const adim, an_heads,
   an_layers, an_refiner, acap_feat_dim, ain_channels, apatch_size: longint;
-  const arope_theta: QNNFloat; const aAxes_dims: Plongint; const useMMAP: boolean
+  const arope_theta: QNNFloat; const aAxes_dims: Plongint; const aUseMMAP: boolean
   );
 var i:longint;
   json, wm : TJSON;
@@ -2906,7 +2912,7 @@ begin
       t_emb_mid_size := sf.shape[0];
 
   (* BLAS/CPU fast-load mode: keep mmap files open and use direct f32 pointers. *)
-  mmap_f32_weights := useMMAp;
+  useMMap := aUseMMAp;
 
   (* Load timestep embedder *)
   t_emb_mlp0_weight := sf_files.getTensorDataMemBlock('t_embedder.mlp.0.weight', useMMAp);

@@ -1,7 +1,9 @@
 //{$apptype console}
 unit mainUnit;
 {$ifdef FPC}
-{$mode Delphi}
+  {$mode Delphi}
+  {$modeswitch advancedrecords}
+  {$modeswitch typehelpers}
 {$endif}
 {$pointermath on}
 {$assertions on}
@@ -12,7 +14,7 @@ interface
 uses
   Classes, SysUtils, Types, LCLType, Forms, Controls, Graphics, Dialogs, ExtCtrls, StdCtrls,
   Buttons, ComCtrls, Spin, ExtDlgs, Menus, quicknn_transformers,
-  quicknn_common, quicknn_vae, quicknn_flux, quicknn_zimage, quicknn_downloader;
+  quicknn_common, quicknn_vae, quicknn_flux, quicknn_zimage, quicknn_downloader, LMessages;
 
 type
 
@@ -24,6 +26,141 @@ type
     procedure Execute; override;
     procedure DoTerminate; override;
 
+  end;
+
+  { THSPoint }
+
+  THSPoint = record
+    class operator implicit(const val:integer):THSPoint;
+    class operator implicit(const val:THSPoint):integer;
+    class operator implicit(const val:TArray<integer>):THSPoint;
+    case boolean of
+      false : (x, y : integer);
+      true : (arr : array[0..1] of integer);
+  end;
+
+  { THSRect }
+
+  THSRect = record
+  private
+    function getheight: integer;
+    function getwidth: integer;
+    procedure Setheight(AValue: integer);
+    procedure Setwidth(AValue: integer);
+  public
+    class operator Implicit(const val:integer):THSRect;
+    class operator Implicit(const val:THSRect):Integer;
+    class operator Implicit(const val:TArray<integer>):THSRect;
+    function centroid():THSPoint;
+    function inflate(const val : integer):THSRect;
+    function deflate(const val : integer):THSRect;
+
+    property width : integer read getwidth write Setwidth;
+    property height : integer read getheight write Setheight;
+    case byte of
+      0  : (left, top, right, bottom : integer);
+      1  : (arr : array[0..3] of integer);
+      2  : (points : array[0..1] of THSPoint);
+  end;
+
+
+
+  THSGradientType = (gtLinear, gtSquare, gtRadial);
+
+  { THSColor }
+
+  THSColor = record
+    gradientType : THSGradientType;
+    color : TRGBAQuad;
+    colors : TArray<TRGBAQuad>;
+    angle : integer;
+    class operator Implicit(const val:TColor):THSColor;
+    class operator Implicit(const val:THSColor):TColor;
+  end;
+
+  { THSBorder }
+
+  THSBorder = record
+    width : THSRect;
+    radius:THSRect;
+    colors : THSColor;
+    class operator implicit(const val:string):THSBorder;
+    class operator implicit(const val:integer):THSBorder;
+    class operator implicit(const val:TColor):THSBorder;
+
+  end;
+
+  { TCanvasHelper }
+
+  TCanvasHelper = type helper for TCanvas
+    procedure GradientRoundRect(const aRect, aRadius:TRect; const colors: TArray<TColor>; const angle:integer = 0);
+  end;
+
+  { THSLookAndFeel }
+
+  THSLookAndFeel = class(TComponent)
+  private
+    procedure SetBackground(AValue: THSColor);
+    procedure SetBorder(AValue: THSBorder);
+    procedure SetPadding(AValue: THSRect);
+  public
+    FBackground : THSColor;
+    FBorder : THSBorder;
+    FPadding : THSRect;
+    FOnChange : TNotifyEvent;
+    //procedure Paint; override;
+    property Background:THSColor read FBackground write SetBackground;
+    property Border : THSBorder read FBorder write SetBorder;
+    property Padding:THSRect read FPadding write SetPadding;
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+  end;
+
+  { THSSpin }
+
+  THSSpin = class(TCustomControl)
+  const BTN_WIDTH = 20;
+  type
+    TBtn=class(TCustomControl)
+      published
+        Property OnMouseEnter;
+        Property OnMouseLeave;
+        Property OnMouseDown;
+        Property OnMouseUp;
+    end;
+  var
+    FLookAndFeel: THSLookAndFeel;
+    upBtn, downBtn : TBtn;
+    FEdit : TCustomEdit;
+    procedure FOnEditKeyDown(Sender:TObject; var key:word; shift:TShiftState);
+  private
+    FOnChange : TNotifyEvent;
+    FbtnColor: THSColor;
+    FMaxValue: int64;
+    FMinValue: int64;
+    procedure FOnEditChange(Sender:TObject);
+    procedure upClick(sender:TObject);
+    procedure downClick(sender:TObject);
+    function getValue: int64;
+    procedure SetbtnColor(AValue: THSColor);
+    procedure SetMaxValue(AValue: int64);
+    procedure SetMinValue(AValue: int64);
+    procedure SetValue(AValue: int64);
+    procedure EraseBackground(DC: HDC); override;
+    procedure btnOnPaint(sender:TObject);
+    procedure btnEnter(sender:TObject);
+    procedure btnLeave(sender:TObject);
+    procedure FOnMouseWheel(sender:TObject; Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
+  public
+    constructor Create(AOwner:TComponent);override;
+    procedure Paint; override;
+    destructor Destroy; override;
+    property MinValue:int64 read FMinValue write SetMinValue;
+    property MaxValue:int64 read FMaxValue write SetMaxValue;
+    property Value : int64 read getValue write setValue;
+    property btnColor:THSColor read FbtnColor write SetbtnColor;
+  protected
+    procedure SetColor(Value: TColor); override;
   end;
 
   { THSEdit }
@@ -39,6 +176,8 @@ type
         Property OnMouseUp;
     end;
   private
+    FbtnColor: THSColor;
+    FLookAndFeel : THSLookAndFeel;
     FItemIndex: integer;
     FItems: TStrings;
     FText: string;
@@ -46,6 +185,7 @@ type
     FBtn: TBtn;
     FList :TCustomListBox;
     FOnChange : TNotifyEvent;
+    FParentOrigWindowProc : TWndMethod;
     procedure FOnBtnPaint(Sender:TObject);
     procedure FOnItemsChange(Sender:TObject);
     procedure FOnListSelectionChange(Sender:TObject;user:boolean);
@@ -53,24 +193,31 @@ type
     procedure FOnListKeyDown(sender:TObject; var key:word; shift:TShiftState);
     procedure FOnEditChange(Sender:TObject);
     procedure FOnEditKeyDown(sender:TObject; var key:word; shift:TShiftState);
+    procedure FOnEditExit(Sender:TObject);
     procedure FOnListExit(Sender:TObject);
     procedure FBtnEnter(Sender:TObject);
     procedure FBtnLeave(Sender:TObject);
     procedure FBtnClick(Sender:TObject);
     procedure FOnListBoxSetVisible(Sender:TObject);
     function GetText: string;
+    procedure SetbtnColor(AValue: THSColor);
     procedure SetItemIndex(AValue: integer);
     procedure SetItems(AValue: TStrings);
     procedure SetText(AValue: string);
     // gets the left and top reltive to the top most form
     function getLocation():TRect;
+    procedure FParentWindowProc(var msg:TLMessage);
   protected
+    procedure SetParent(NewParent: TWinControl); override;
+    procedure CreateParams(var Params: TCreateParams); override;
     procedure SetColor(Value: TColor); override;
   public
     constructor Create(AOwner: TComponent); override;
     procedure paint;override;
+    procedure EraseBackground(DC: HDC); override;
     destructor Destroy; override;
     procedure FOnItemChange(Sender:TObject);
+    property btnColor : THSColor read FbtnColor write SetbtnColor;
   published
     property ItemIndex:integer read FItemIndex write SetItemIndex;
     property Text : string read GetText write SetText;
@@ -102,6 +249,7 @@ type
     procedure SetPosition(AValue: integer);
     procedure SetStep(AValue: integer);
     procedure SetStyle(AValue: THSProgressStyle);
+    procedure TextChanged(); override;
   public
     procedure StepIt();
     constructor Create(AOwner:TComponent);   override;
@@ -174,6 +322,7 @@ type
     Splitter3: TSplitter;
     spnSteps: TSpinEdit;
     prog, subDL, totalDL :THSProgressBar;
+    Timer1: TTimer;
     procedure btnGenerateClick(Sender: TObject);
     procedure btnLoadPic1Click(Sender: TObject);
     procedure btnTxt2ImgClick(Sender: TObject);
@@ -189,6 +338,8 @@ type
     procedure btnLoadPicMouseEnter(Sender: TObject);
     procedure btnLoadPicMouseLeave(Sender: TObject);
     procedure Image1DblClick(Sender: TObject);
+    procedure Image1MouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer
+      );
     procedure Label10Click(Sender: TObject);
     procedure lblMoreClick(Sender: TObject);
     procedure lblMoreMouseEnter(Sender: TObject);
@@ -196,12 +347,19 @@ type
     procedure lblSetAsRefClick(Sender: TObject);
     procedure MenuItem2Click(Sender: TObject);
     procedure mnuDL1Click(Sender: TObject);
+    procedure mnuDL2Click(Sender: TObject);
     procedure mnuDLOpenBLASClick(Sender: TObject);
+    procedure Timer1Timer(Sender: TObject);
   private
     procedure checkExistingModels;
     procedure OnDownload(const subReceived, subTotal, received, total:int64);
+    procedure OnIdle(Sender :TObject; var done:boolean);
+    procedure OnIdleEnd(Sender :TObject);
+    procedure loop(data:IntPtr); // for testing! do not use
+
   public
     modeledit1, imgRes, schedularEdit1:THSEdit;
+    stepsSpn, powerSpn, cfgSpn : THSSpin;
     generateThread : TGenerateThread
   end;
 
@@ -211,14 +369,15 @@ var
   gotImage2:boolean = false;
   lastGenerated : string = '';
 
-  procedure QNNImageToBitmap(const img:TQNNImage; var bmp:TBitmap);
+  procedure QNNImageToBitmap(const img:TQNNImage; var bmp: graphics.TBitmap);
   const DL_Symbols : array of rawbytestring = ['   ', '  .', ' ..', '...', '.. ', '.  '];
 implementation
 uses
   math
-  ,unitAbout
+  , unitAbout
 {$ifdef MSWINDOWS}
-  ,DwmApi
+  , windows
+  , DwmApi
 {$endif};
 
 {$R *.lfm}
@@ -234,13 +393,34 @@ procedure SetDarkModeTitleBar(AForm: TForm; Active: longbool);
 const
   DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
   DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
-var
-  Attr: DWord;
+  DWMWA_REDIRECTIONBITMAP_ALPHA = 39;
+  DWMWA_BORDER_MARGINS = 40;
+  DWMWA_SYSTEMBACKDROP_TYPE = 38;
+
+
+  DWMSBT_AUTO = 0;
+  DWMSBT_NONE = 1;
+  DWMSBT_MAINWINDOW = 2;
+  DWMSBT_TRANSIENTWINDOW = 3;
+  DWMSBT_TABBEDWINDOW = 4;
+var attr : longword;
 begin
+
   Attr := DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1;
   if IsWindows10OrGreater(18985) then Attr := DWMWA_USE_IMMERSIVE_DARK_MODE;
 
   DwmSetWindowAttribute(AForm.Handle, Attr, @Active, SizeOf(Active));
+
+  if not IsWindows10OrGreater(18985) then exit;
+  Attr:= $884422;
+  assert(DwmSetWindowAttribute(MainForm.Handle, DWMWA_CAPTION_COLOR, @attr, SizeOf(Active))=S_OK);
+
+  //Attr:= $ffcc88;
+  //assert(DwmSetWindowAttribute(MainForm.Handle, DWMWA_TEXT_COLOR, @attr, SizeOf(Active))=S_OK);
+
+  Attr:= $ffcc88;
+  assert(DwmSetWindowAttribute(MainForm.Handle, DWMWA_BORDER_COLOR, @attr, SizeOf(Active))=S_OK);
+
 end;
 {$endif}
 
@@ -294,23 +474,174 @@ begin
   freeAndNil(bmp)
 end;
 
-function Limit(V,Min,Max:Integer):Integer;
+{ Tools }
+
+function min(const a, b, c:byte):byte;inline;overload;
 begin
-  if V>Max then
-    Result:=Max
-  else if V<Min then
-    Result:=Min
+  if a>b then result := b else result := a;
+  if result>c then result := c
+end;
+
+function max(const a, b, c:byte):byte;inline;overload;
+begin
+  if a>b then result := a else result := b;
+  if c>result then result := c
+end;
+
+function Limit(const V,aMin,aMax:Integer):Integer;
+begin
+  if V>aMax then
+    Result:=aMax
+  else if V<aMin then
+    Result:=aMin
   else Result:=V
 
 end;
 
-function ColorBright(C:TColor;Brightness:Integer):TColor;
+function lerp(const x, start, finish:single):single;overload;
 begin
-//  C:=ColorToRGB(C);
-  Result:=RGBToColor(EnsureRange(red(c)+Brightness, 0, 255), EnsureRange(green(c)+Brightness, 0, 255), EnsureRange(blue(c)+Brightness, 0, 255))
+  result := start + x * (finish - start)
 end;
 
-procedure QNNImageToBitmap(const img: TQNNImage; var bmp: TBitmap);
+function lerp(const x:single;const start, finish:integer):integer;overload;
+begin
+  result := trunc(start + x * (finish - start))
+end;
+
+function ColorBright(const C:TColorRef; const Brightness:Integer):TColorRef; overload;
+var
+  R, G, B : byte;
+begin
+  RedGreenBlue(C, R, G, B);
+  Result:=RGBToColor(limit(R + Brightness, 0, 255), limit(G + Brightness, 0, 255), limit(B + Brightness, 0, 255))
+end;
+
+function ColorBright(const C:TColor; const Brightness:Integer):TColor; overload;
+var
+  R, G, B : byte;
+begin
+  RedGreenBlue(ColorToRGB(C), R, G, B);
+  Result:=RGBToColor(limit(R + Brightness, 0, 255), limit(G + Brightness, 0, 255), limit(B + Brightness, 0, 255))
+end;
+
+procedure rgb2hsl(const rgb:TColorRef; out H:integer; out S, L: byte);overload;
+var R, G, B, C, V, Mi: byte;
+begin
+  R  := rgb and $000000ff;
+  G  := (rgb shr 8) and $000000ff;
+  B  := (rgb shr 16) and $000000ff;
+  V := max(R, G, B);
+  Mi := min(R, G, B);
+  C  := V - Mi;
+  L  := Mi + C div 2;
+
+  if C = 0 then
+    H :=0
+  else
+    if V = R then
+      H := 60 * (((G - B) div C) mod 6)
+    else if V = B then
+      H := 60 * (((B - R) div C) + 2)
+    else
+      H := 60 * (((R - G) div C) + 4);
+
+  if (L = 0) or (L = $FF) then
+    S := 0
+  else
+    S := 255*(V - L) div min(255 - L, L)
+end;
+
+procedure rgb2hsl(const rgb:TColorRef; out H, S, L: byte);overload;
+var
+  Mi: integer;
+  R, G, B, V, C : byte;
+begin
+  R  := rgb and $000000ff;
+  G  := (rgb shr 8) and $000000ff;
+  B  := (rgb shr 16) and $000000ff;
+
+  V := max(R, G, B);
+  Mi := min(R, G, B);
+  C := V - Mi;
+  L := Mi + C div 2;
+
+  if C = 0 then begin
+    H := 0;
+    S := 0;
+  end else begin
+    S := 255* (V - L) div min(L, 255 - L);
+    if V = R then begin
+      Mi := 85 * (G - B) div (2*C);
+      if Mi < 0 then H := Mi + 255 else H := Mi;
+    end else if V = g then
+      H := 85 * (B - R) div (2*C) + 85
+    else
+      H := 85 * (R - G) div (2*C) + 170;
+  end;
+end;
+
+procedure rgb2hsv(const rgb:TColorRef; out H, S, V: byte);inline;
+var R, G, B, C: byte; Mi:integer;
+begin
+  R  := rgb and $000000ff;
+  G  := (rgb shr 8) and $000000ff;
+  B  := (rgb shr 16) and $000000ff;
+  V := max(R, G, B);
+  Mi := min(R, G, B);
+  C  := V - Mi;
+
+  if C = 0 then
+    H :=0
+  else begin
+    if V = R then begin
+      Mi := 85 * (G - B) div (2*C);
+      if Mi < 0 then H := Mi + 255 else H := Mi;
+    end else if V = g then
+      H := 85 * (B - R) div (2*C) + 85
+    else
+      H := 85 * (R - G) div (2*C) + 170;
+  end;
+  if V = 0 then
+    S := 0
+  else
+    S := 255 * C div V
+end;
+
+
+function hsl2rgb(const H, S, L:Byte):TColorRef;
+var X, C, m:byte;
+begin
+  C := (255 - abs(2*L - 255)) * S div 255;
+  X := C - 2*C*abs(longint(H mod 85 - 42)) div 85;   // 85 ~= 255 / 3
+  m := L - C div 2;
+  case trunc(H / 42.5) of
+    0 : exit(RGBToColor(C+m, X+m, m));
+    1 : exit(RGBToColor(X+m, C+m, m));
+    2 : exit(RGBToColor(m  , C+m, X+m));
+    3 : exit(RGBToColor(m  , X+m, C+m));
+    4 : exit(RGBToColor(X+m, m  , C+m));
+    5 : exit(RGBToColor(C+m, m  , X+m));
+  end;
+end;
+
+function hsv2rgb(const H, S, V:Byte):TColorRef;
+var X, C, m:byte;
+begin
+  C := V * S div 255;
+  X := C - 2*C*abs(longint(H mod 85 - 42)) div 85;
+  m := V - C;
+  case trunc(H / 42.5) of
+    0 : exit(RGBToColor(C+m, X+m, m));
+    1 : exit(RGBToColor(X+m, C+m, m));
+    2 : exit(RGBToColor(m  , C+m, X+m));
+    3 : exit(RGBToColor(m  , X+m, C+m));
+    4 : exit(RGBToColor(X+m, m  , C+m));
+    5 : exit(RGBToColor(C+m, m  , X+m));
+  end;
+end;
+
+
+procedure QNNImageToBitmap(const img: TQNNImage; var bmp: Graphics.TBitmap);
 type
   TRGB = packed record r, g, b, a:byte end;
   PRGB = ^TRGB;
@@ -360,10 +691,11 @@ begin
 
 
   with MainForm do begin
+    prog.BarShowText:=True;
     params := default(TGenerateParams);
     params.width:=imWidth;
     params.height:=imHeight;
-    params.num_steps := spnSteps.Value;
+    params.num_steps := stepsSpn.Value;
     params.guidance  := strToFloat(edtCFG.Text);
     params.powerAlpha:= strToFloat(edtPowerAlpha.Text);
     params.schedule  := TQNNSchedule(schedularEdit1.ItemIndex);
@@ -453,24 +785,434 @@ begin
     btnGenerate.Caption := 'Generate';
     btnTxt2Img.Enabled:=True;
     btnImg2Img.Enabled:=True;
+    prog.BarShowText:=false;
     generateThread.Synchronize(MainForm.Repaint);
   end;
   inherited DoTerminate;
 end;
 
+{ THPoint }
+
+class operator THSPoint.implicit(const val: integer): THSPoint;
+begin
+  result.x := val;
+  result.y := val
+end;
+
+class operator THSPoint.implicit(const val: THSPoint): integer;
+begin
+  result := (val.x+val.y) div 2
+end;
+
+class operator THSPoint.implicit(const val: TArray<integer>): THSPoint;
+var i: integer;
+begin
+  for i:=0 to min(high(val), high(result.arr)) do
+    result.arr[i] := val[i]
+end;
+
+{ THSRect }
+
+function THSRect.getheight: integer;
+begin
+  result := bottom - top
+end;
+
+function THSRect.getwidth: integer;
+begin
+  result := right - left
+end;
+
+procedure THSRect.Setheight(AValue: integer);
+begin
+  right := left + AValue
+end;
+
+procedure THSRect.Setwidth(AValue: integer);
+begin
+  bottom := top + AValue
+end;
+
+class operator THSRect.Implicit(const val: integer): THSRect;
+begin
+  result.top := val;
+  result.right := val;
+  result.bottom := val;
+  result.left := val;
+end;
+
+class operator THSRect.Implicit(const val: THSRect): Integer;
+begin
+  result := (val.top + val.right + val.bottom + val.left) div 4;
+end;
+
+class operator THSRect.Implicit(const val: TArray<integer>): THSRect;
+var i: integer;
+begin
+  for i:=0 to min(high(val), high(result.arr)) do
+    result.arr[i] := val[i]
+end;
+
+function THSRect.centroid(): THSPoint;
+begin
+  result.x := (left + right) div 2 ;
+  result.y := (top + bottom) div 2
+end;
+
+function THSRect.inflate(const val: integer): THSRect;
+begin
+  result.left := left - val;
+  result.top := top - val;
+  result.right := right + val;
+  result.bottom := bottom + val;
+end;
+
+function THSRect.deflate(const val: integer): THSRect;
+begin
+  if left+val < right - val  then begin
+    result.left := left + val;
+    result.right := right - val;
+  end;
+  if top + val < bottom - val  then begin
+    result.top := top + val;
+    result.bottom := bottom - val;
+  end;
+end;
+
+{ THSColor }
+
+class operator THSColor.Implicit(const val: TColor): THSColor;
+var Ref:TColorRef;
+begin
+  ref := ColorToRGB(val);
+  result.colors := nil;
+  result.color.Red := Red(val);
+  result.color.Green := green(val);
+  result.color.Blue := Blue(val);
+
+end;
+
+class operator THSColor.Implicit(const val: THSColor): TColor;
+begin
+  result := RGBToColor(val.color.Red, val.color.green, val.color.blue);
+end;
+
+{ THSBorder }
+
+class operator THSBorder.implicit(const val: string): THSBorder;
+var vals : TArray<string>;
+  w:integer;
+  c:TColor;
+begin
+  vals := val.Split(' ');
+  if (length(vals)>0) and TryStrToInt(vals[0], w) then result.width := w;
+  if (length(vals)>1) and TryStrToInt(vals[1], c) then result.colors := c;
+  if (length(vals)>2) and TryStrToInt(vals[2], w) then result.radius := w;
+
+end;
+
+class operator THSBorder.implicit(const val: integer): THSBorder;
+begin
+  result.width := val
+end;
+
+class operator THSBorder.implicit(const val: TColor): THSBorder;
+begin
+  result.colors := val;
+end;
+
+{ TCanvasHelper }
+
+procedure TCanvasHelper.GradientRoundRect(const aRect, aRadius: TRect;
+  const colors: TArray<TColor>; const angle: integer);
+var x, y, r1, r2, r3, r4:integer;
+
+begin
+
+end;
+
+{ THSLookAndFeel }
+
+procedure THSLookAndFeel.SetBackground(AValue: THSColor);
+begin
+  //if FBackground=AValue then Exit;
+  FBackground:=AValue;
+   if assigned(FOnChange) then FOnChange(Self)
+end;
+
+procedure THSLookAndFeel.SetBorder(AValue: THSBorder);
+begin
+  //if FBorder=AValue then Exit;
+  FBorder:=AValue;
+  if assigned(FOnChange) then FOnChange(Self)
+end;
+
+procedure THSLookAndFeel.SetPadding(AValue: THSRect);
+begin
+  //if FPadding=AValue then Exit;
+  FPadding:=AValue;
+  if assigned(FOnChange) then FOnChange(Self)
+end;
+
+//procedure THSLookAndFeel.Paint;
+//var i,j:integer; r, g, b, a:byte;
+//begin
+//  inherited Paint;
+//  if length(background.colors)>1 then
+//    case Background.gradientType of
+//      gtLinear: with canvas do begin
+//
+//      end;
+//      gtSquare: with canvas do begin
+//
+//      end;
+//      gtRadial: with canvas do begin
+//
+//      end;
+//    end;
+//end;
+
+constructor THSLookAndFeel.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  Border := '1 $808080 16';
+  padding := 4;
+end;
+
+destructor THSLookAndFeel.Destroy;
+begin
+  inherited Destroy;
+end;
+
+{ THSSpin }
+
+procedure THSSpin.FOnEditKeyDown(Sender: TObject; var key: word;
+  shift: TShiftState);
+var i:Int64; d:Double;
+begin
+  case key of
+    VK_UP:begin
+      if TryStrToInt64(FEdit.Text, i) and (i<FMaxValue) then FEdit.text := intToStr(i+1);
+      key := 0
+    end;
+    VK_DOWN: begin
+      if TryStrToInt64(FEdit.Text, i) and (i>FMinValue) then FEdit.text := intToStr(i-1);
+      key := 0;
+    end;
+    VK_0..VK_9: ;
+    else
+      key := 0
+  end;
+end;
+
+procedure THSSpin.FOnEditChange(Sender: TObject);
+begin
+  if assigned(FOnChange) then FOnChange(Sender);
+end;
+
+procedure THSSpin.upClick(sender: TObject);
+  var i:int64;
+begin
+  if TryStrToInt64(FEdit.Text, i) and (i<FMaxValue) then FEdit.text := intToStr(i+1);
+end;
+
+procedure THSSpin.downClick(sender: TObject);
+var i:int64;
+begin
+  if TryStrToInt64(FEdit.Text, i) and (i>FMinValue) then FEdit.text := intToStr(i-1);
+end;
+
+function THSSpin.getValue: int64;
+begin
+  TryStrToInt64(FEdit.Text, result);
+end;
+
+procedure THSSpin.SetbtnColor(AValue: THSColor);
+begin
+  //if FbtnColor = AValue then Exit;
+  FbtnColor:=AValue;
+end;
+
+procedure THSSpin.SetMaxValue(AValue: int64);
+begin
+  if FMaxValue=AValue then Exit;
+  FMaxValue:=AValue;
+end;
+
+procedure THSSpin.SetMinValue(AValue: int64);
+begin
+  if FMinValue=AValue then Exit;
+  FMinValue:=AValue;
+end;
+
+procedure THSSpin.SetValue(AValue: int64);
+begin
+  assert((AValue>=FMinValue) and (AValue<=FMaxValue), 'Value is out of range!');
+  FEdit.Text:=IntToStr(AValue);
+end;
+
+procedure THSSpin.EraseBackground(DC: HDC);
+begin
+  //inherited EraseBackground(DC);
+end;
+
+procedure THSSpin.SetColor(Value: TColor);
+begin
+  inherited SetColor(Value);
+  FEdit.Color:= Color;
+end;
+
+procedure THSSpin.btnOnPaint(sender: TObject);
+var ts:TTextStyle;
+begin
+  //TCustomControl(Sender).Canvas.Pen.Color:=$808080;
+  TCustomControl(Sender).Canvas.Pen.Style:=psClear;
+  TCustomControl(Sender).Canvas.Pen.Cosmetic:=false;
+  TCustomControl(Sender).Canvas.Pen.Width:=1;
+  if TCustomControl(Sender).MouseInClient then
+    TCustomControl(Sender).Canvas.Brush.Color:=ColorBright(FbtnColor, 20)
+  else
+    TCustomControl(Sender).Canvas.Brush.Color:=FBtnColor;
+  TCustomControl(Sender).Canvas.RoundRect(TCustomControl(Sender).ClientRect, 8, 8);
+  TCustomControl(Sender).Font.Color:=parent.Font.Color;
+  with TCustomControl(Sender).Canvas do begin
+    ts := TextStyle;
+    ts.Alignment:=taCenter;
+    ts.Layout:=tlCenter;
+    TextStyle:=ts;
+    TextRect(TCustomControl(Sender).ClientRect, 0, 0, TCustomControl(Sender).Caption);
+  end
+end;
+
+procedure THSSpin.btnEnter(sender: TObject);
+begin
+  FbtnColor :=ColorBright(FbtnColor, 20);
+  TBtn(sender).Invalidate
+end;
+
+procedure THSSpin.btnLeave(sender: TObject);
+begin
+  FbtnColor :=ColorBright(FbtnColor, -20);
+  TBtn(sender).Invalidate
+end;
+
+procedure THSSpin.FOnMouseWheel(sender: TObject; Shift: TShiftState;
+  WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
+var i:int64;
+begin
+  if Wheeldelta>0 then begin
+    if TryStrToInt64(FEdit.Text, i) and (i<FMaxValue) then FEdit.text := intToStr(i+1)
+  end else
+    if TryStrToInt64(FEdit.Text, i) and (i>FMinValue) then FEdit.text := intToStr(i-1);
+
+
+  if assigned(OnMouseDown) then OnMouseWheel(sender, Shift, WheelDelta, MousePos, Handled);
+end;
+
+constructor THSSpin.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  Width := 100;
+  Height := 10;
+  FLookAndFeel := THSLookAndFeel.Create(Self);
+  FEdit :=TCustomEdit.Create(Self);
+  //FEdit.Parent:=FLookAndFeel;
+  FEdit.Parent:=Self;
+  //FEdit.Color := Color;
+  OnMouseWheel := FOnMouseWheel;
+  FEdit.ControlStyle := FEdit.ControlStyle - [TControlStyleType.csOpaque];
+  FEdit.BorderStyle:=bsNone;
+  FEdit.left := FLookAndFeel.Padding.left;
+  FEdit.Top := FLookAndFeel.Padding.top;
+  FEdit.Width := Width - FLookAndFeel.Padding.left - FLookAndFeel.Padding.right - BTN_WIDTH;
+  FEdit.Height := Height - FLookAndFeel.Padding.top - FLookAndFeel.Padding.bottom - FLookAndFeel.Border.width.bottom;
+  height := FLookAndFeel.Padding.top+FLookAndFeel.Padding.bottom + FEdit.Height;
+  FEdit.Anchors := [akLeft, akTop, akRight, akbottom];
+  FEdit.OnKeyDown:=FOnEditKeyDown;
+  FEdit.OnChange:=FOnEditChange;
+
+  FbtnColor := $CC6611;
+  //upBtn := TBtn.Create(self);
+  //upBtn.Parent := Self;
+  //upBtn.SetBounds(width - FLookAndFeel.Padding.right - BTN_WIDTH, FLookAndFeel.Padding.top, BTN_WIDTH, (height - FLookAndFeel.Padding.top - FLookAndFeel.Padding.bottom) div 4);
+  //upBtn.Anchors:=[akTop, akRight, akBottom];
+  //upBtn.OnPaint:=btnOnPaint;
+  //upBtn.OnMouseEnter:=BtnEnter;
+  //upBtn.OnMouseLeave:=BtnLeave;
+  //upBtn.OnClick:=upClick;
+  //upBtn.Font.Size:=Height div 2;
+  //upBtn.Caption:='▲';
+
+  //downBtn := TBtn.Create(self);
+
+  //downBtn.Parent := Self;
+  //downBtn.SetBounds(width - FLookAndFeel.Padding.right - BTN_WIDTH, height div 2, BTN_WIDTH, height div 2 - FLookAndFeel.Padding.top + 1);
+  //downBtn.Anchors:=[akTop, akRight, akBottom];
+  //downBtn.OnPaint:=btnOnPaint;
+  //downBtn.OnMouseEnter:=BtnEnter;
+  //downBtn.OnMouseLeave:=BtnLeave;
+  //downBtn.OnClick:=downClick;
+  //downBtn.Font.Size:=Height div 2;
+  //downBtn.Caption:='▼';
+end;
+
+procedure THSSpin.Paint;
+var
+  r: TRect;
+begin
+  inherited Paint;
+  with canvas do begin
+    pen.width   := FLookAndFeel.Border.width;
+    pen.Color   := FLookAndFeel.Border.colors;
+    pen.Style   := psSolid;
+    brush.Style := bsSolid;
+    //brush.Color := color;
+    Brush.Color := Parent.Color;
+    FillRect(ClientRect);
+    Brush.Color := Color;
+    r := ClientRect;
+    //r.Inflate(0, 0 , -2, -2);
+    RoundRect(r, FLookAndFeel.Border.radius.left, FLookAndFeel.Border.radius.left);
+
+
+  end;
+
+end;
+
+destructor THSSpin.Destroy;
+begin
+  if assigned(upBtn) then freeandnil(upBtn);
+  if assigned(downbtn) then downBtn.Free;
+  FreeAndNil(FLookAndFeel);
+  inherited Destroy;
+end;
+
 { THSEdit }
+
+procedure THSEdit.SetParent(NewParent: TWinControl);
+var par :TControl;
+begin
+  inherited SetParent(NewParent);
+  par :=GetTopParent;
+  if assigned(par) then begin
+    FParentOrigWindowProc := par.WindowProc;
+    par.WindowProc := FParentWindowProc;
+  end;
+
+end;
 
 procedure THSEdit.FOnBtnPaint(Sender: TObject);
 var ts:TTextStyle;
 begin
-  FBtn.Canvas.Pen.Color:=$808080;
+  //FBtn.Canvas.Pen.Color:=$808080;
+  FBtn.Canvas.Pen.Style:=psClear;
   FBtn.Canvas.Pen.Cosmetic:=false;
   FBtn.Canvas.Pen.Width:=1;
-  if FBtn.MouseInClient then
-    FBtn.Canvas.Brush.Color:=ColorBright(FBtn.Color, 20)
-  else
-    FBtn.Canvas.Brush.Color:=FBtn.Color;
-  FBtn.Canvas.RoundRect(FBtn.ClientRect, 0, 0);
+  //if FBtn.MouseInClient then
+  //  FBtn.Canvas.Brush.Color:=ColorBright(FbtnColor, 20)
+  //else
+  //  FBtn.Canvas.Brush.Color:=FBtnColor;
+  //FBtn.Canvas.RoundRect(FBtn.ClientRect, 8, 8);
   FBtn.Font.Color:=parent.Font.Color;
   with TCustomControl(Sender).Canvas do begin
     ts := TextStyle;
@@ -543,6 +1285,11 @@ begin
   end;
 end;
 
+procedure THSEdit.FOnEditExit(Sender: TObject);
+begin
+  if not FList.Focused then FList.Hide
+end;
+
 procedure THSEdit.FOnListExit(Sender: TObject);
 begin
   //Flist.Hide
@@ -550,12 +1297,14 @@ end;
 
 procedure THSEdit.FBtnEnter(Sender: TObject);
 begin
-  FBtn.Color:=ColorBright(FBtn.Color, 20);
+  FbtnColor :=ColorBright(FbtnColor, 20);
+  FBtn.Invalidate;
 end;
 
 procedure THSEdit.FBtnLeave(Sender: TObject);
 begin
-  FBtn.Color:=ColorBright(FBtn.Color, -20);
+  FbtnColor :=ColorBright(FbtnColor, -20);
+  FBtn.Invalidate
 end;
 
 procedure THSEdit.FBtnClick(Sender: TObject);
@@ -564,7 +1313,8 @@ begin
   FList.Visible := not FList.Visible;
   if FList.Visible and FList.CanSetFocus then begin
     FList.Update;
-    FList.SetFocus();
+    //FList.SetFocus();
+    FEdit.SetFocus;
   end;
 
 end;
@@ -590,6 +1340,12 @@ end;
 function THSEdit.GetText: string;
 begin
   result := FEdit.Text;
+end;
+
+procedure THSEdit.SetbtnColor(AValue: THSColor);
+begin
+  //if FbtnColor = AValue then Exit;
+  FbtnColor:=AValue;
 end;
 
 procedure THSEdit.SetItemIndex(AValue: integer);
@@ -627,35 +1383,65 @@ begin
   result.Height :=Height;
 end;
 
+procedure THSEdit.FParentWindowProc(var msg: TLMessage);
+begin
+  if FList.Visible and
+  {$ifdef MSWINDOWS}
+   (msg.msg=LM_SETCURSOR) and (TLMSetCursor(msg).MouseMsg=LM_LBUTTONDOWN) then
+  {$else}
+  (msg.msg=LM_MOUSEENTER) then
+  {$endif}
+    FList.Hide;
+  FParentOrigWindowProc(msg);
+end;
+
+procedure THSEdit.CreateParams(var Params: TCreateParams);
+begin
+  inherited CreateParams(Params);
+  //params.Style   := params.Style and not (WS_CLIPCHILDREN);
+  //Params.ExStyle := Params.ExStyle or WS_EX_LAYERED;
+end;
+
 procedure THSEdit.SetColor(Value: TColor);
 begin
   inherited SetColor(Value);
-  FEdit.Color:=ColorBright(Value, -20);
+  FEdit.Color:= Color; //ColorBright(Value, -20);
+  FList.Color:=FEdit.Color;
 end;
 
 
 constructor THSEdit.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  Canvas.Brush.Style := bsClear;
+  ControlStyle := ControlStyle + [TControlStyleType.csOpaque];
   width := 100;
-  height:=20;
+  FLookAndFeel := THSLookAndFeel.Create(Self);
+  //FLookAndFeel.Align:=alClient;
+  //FLookAndFeel.Parent := Self;
+  //height:=FLookAndFeel.Padding.top + FLookAndFeel.Padding.bottom + Font.Height;
   FItems := TStringList.Create;
   FItemIndex:=-1;
   FEdit :=TCustomEdit.Create(Self);
+  //FEdit.Parent:=FLookAndFeel;
   FEdit.Parent:=Self;
-  FEdit.Color := Color;
+  //FEdit.Color := Color;
 
+  FEdit.ControlStyle := FEdit.ControlStyle - [TControlStyleType.csOpaque];
   FEdit.BorderStyle:=bsNone;
-  FEdit.SetBounds(1, 1, Width-BTN_WIDTH, Height-2);
+  FEdit.SetBounds(FLookAndFeel.Padding.left, FLookAndFeel.Padding.top, Width - FLookAndFeel.Padding.left - FLookAndFeel.Padding.right - BTN_WIDTH, Height - FLookAndFeel.Padding.top - FLookAndFeel.Padding.bottom - FLookAndFeel.Border.width.bottom);
+  height := FLookAndFeel.Padding.top+FLookAndFeel.Padding.bottom + FEdit.Height;
   FEdit.Anchors := [akLeft, akTop, akRight, akbottom];
   FEdit.OnKeyDown:=FOnEditKeyDown;
   FEdit.OnChange:=FOnEditChange;
-
+  FEdit.OnExit:=FOnEditExit;
   //FEdit.Alignment:=taVerticalCenter;
+  //FEdit.BorderSpacing.InnerBorder:=2;
 
   FList := TCustomListBox.Create(self);
-  FList.BorderStyle:=bsNone;
-  FList.Color := ColorBright(Color, -20);
+  FList.BorderStyle := bsSingle;
+  FList.BorderWidth := 1;
+  //FList.Color := ColorBright(Color, -20);
   //FList.Font.Color:=Font.Color;
   FList.OnSelectionChange:=FOnListSelectionChange;
   FList.OnClick:=FOnListClick;
@@ -664,11 +1450,11 @@ begin
   TStringList(FItems).OnChange:=FOnItemsChange;
   FList.Visible := false;
   Flist.Height := 100;
-
+  FbtnColor := $CC6611;
   FBtn  :=TBtn.Create(Self);
-  FBtn.Color := $cc7700;
+  //FBtn.Color := $cc7700;
   FBtn.Parent := Self;
-  FBtn.SetBounds(width - BTN_WIDTH, 1, BTN_WIDTH, height-2);
+  FBtn.SetBounds(width - FLookAndFeel.Padding.right - BTN_WIDTH, FLookAndFeel.Padding.top, BTN_WIDTH, height - FLookAndFeel.Padding.top - FLookAndFeel.Padding.bottom + 1);
   FBtn.Anchors:=[akTop, akRight, akBottom];
   FBtn.OnPaint:=FOnBtnPaint;
   FBtn.OnMouseEnter:=FBtnEnter;
@@ -677,14 +1463,35 @@ begin
 
   FBtn.Caption:='▼';
 
-
   //FBtn.SetBounds(width - 16, 2, 16, height - 4);
 
 end;
 
 procedure THSEdit.paint;
+var r: TRect;
 begin
   inherited paint;
+  with canvas do begin
+    pen.width   := FLookAndFeel.Border.width;
+    pen.Color   := FLookAndFeel.Border.colors;
+    pen.Style   := psSolid;
+    brush.Style := bsSolid;
+    //brush.Color := color;
+    Brush.Color := Parent.Color;
+    FillRect(ClientRect);
+    Brush.Color := Color;
+    r := ClientRect;
+    //r.Inflate(0, 0 , -2, -2);
+    RoundRect(r, FLookAndFeel.Border.radius.left, FLookAndFeel.Border.radius.left);
+
+
+  end;
+end;
+
+procedure THSEdit.EraseBackground(DC: HDC);
+begin
+  // do not paint background
+  //inherited EraseBackground(DC);
 end;
 
 destructor THSEdit.Destroy;
@@ -693,6 +1500,7 @@ begin
   Flist.free;
   Fbtn .free;
   FItems.Free;
+  FLookAndFeel.Free;
   inherited Destroy;
 end;
 
@@ -718,7 +1526,8 @@ begin
 end;
 
 procedure THSProgressBar.paint;
-var ts:TTextStyle;
+var
+  ts:TTextStyle;
 begin
   inherited paint;
   with canvas do begin
@@ -809,6 +1618,13 @@ begin
   Invalidate;
 end;
 
+procedure THSProgressBar.TextChanged();
+begin
+  inherited TextChanged();
+  //if BarShowText then
+    Invalidate;
+end;
+
 procedure THSProgressBar.StepIt();
 begin
   inc(FPosition, FStep);
@@ -885,7 +1701,7 @@ begin
                                 '{"model" : "'+modeledit1.text+'"'+
                                 ', "prompt" : "'+StringReplace(memoPrompt.text, '"', '\"', [rfReplaceAll])+
                                 '", "seed" : '+edtSeed.text+
-                                ', "steps" : '+spnSteps.text);
+                                ', "steps" : '+stepsSpn.text);
 
       end;
 
@@ -899,7 +1715,7 @@ begin
                               '{"model" : "'+modeledit1.text+'"'+
                               ', "prompt" : "'+StringReplace(memoPrompt.text, '"', '\"', [rfReplaceAll])+
                               '", "seed" : '+edtSeed.text+
-                              ', "steps" : '+spnSteps.text);
+                              ', "steps" : '+stepsSpn.text);
       end
     end;
   end;
@@ -941,12 +1757,30 @@ begin
     generateThread.Terminate;
     generateThread.WaitFor;
   end;
-
 end;
+
+const
+  FACE_COLOR = $332211;
+  FONT_COLOR = $d0c0d0;
+  BACK_COLOR = $221100;
 
 procedure TMainForm.FormCreate(Sender: TObject);
 var i:TQNNSchedule; s:ansistring;
+  j:longint;
 begin
+  Application.OnIdle := OnIdle;
+  Application.OnIdleEnd := OnIdleEnd;
+  Color := FACE_COLOR;
+  font.Color := FONT_COLOR ;
+  panel6.Color := BACK_COLOR;
+  for j:=0 to ComponentCount-1 do
+    if (Components[j] is TSpeedButton) or (Components[j].InheritsFrom(TButtonControl))then begin
+      TSpeedButton(Components[j]).Transparent:=false;
+      TSpeedButton(Components[j]).Color := self.Color;
+    end else if (Components[j] is TComboBox) or (Components[j] is TEdit) or (Components[j] is TSpinEdit) or (Components[j] is TMemo) then
+      TControl(Components[j]).Color:=panel6.Color;
+
+
   //DefaultFormatSettings.DecimalSeparator := '.';
   if not DirectoryExists(AppPath + '/../../../Examples') then
     MODELS_DIR := ExtractFileName(MODELS_DIR);
@@ -966,8 +1800,10 @@ begin
   cmbModels.hide;
   cmbImgRes.hide;
   cmbSchedular.hide;
+  spnSteps.hide;
 
   modelEdit1:= THSEdit.Create(Self);
+  modeledit1.Color:=cmbModels.Color;
   modeledit1.Parent:=cmbModels.Parent;
   modelEdit1.SetBounds(cmbModels.Left, cmbModels.Top, cmbModels.Width, cmbModels.Height);
   modelEdit1.Anchors:=[akLeft, akTop];
@@ -976,14 +1812,16 @@ begin
     modeledit1.ItemIndex:=0;
 
   imgRes := THSEdit.Create(Self);
+  imgRes.Color:= cmbImgRes.Color;
   imgRes.parent := cmbImgRes.parent;
   imgRes.SetBounds(cmbImgRes.Left, cmbImgRes.Top, cmbImgRes.Width, cmbImgRes.Height);
   imgRes.Anchors:=[akRight, akTop];
   imgRes.items.Text := cmbImgRes.items.text;
-  if imgRes.Items.Count>0 then
-    imgRes.ItemIndex:=0;
+  if imgRes.Items.Count>1 then
+    imgRes.ItemIndex:=1;
 
   schedularEdit1 := THSEdit.Create(Self);
+  schedularEdit1.Color:=cmbSchedular.Color;
   schedularEdit1.parent := cmbSchedular.parent;
   schedularEdit1.SetBounds(cmbSchedular.Left, cmbSchedular.Top, cmbSchedular.Width, cmbSchedular.Height);
   schedularEdit1.Anchors:=[akRight, akTop];
@@ -991,8 +1829,15 @@ begin
   if schedularEdit1.Items.Count>0 then
     schedularEdit1.ItemIndex:=0;
 
-
-  spnSteps.BorderStyle := bsNone;
+  stepsSpn := THSSpin.Create(Self);
+  stepsSpn.Color := spnSteps.Color;
+  stepsSpn.Parent := spnSteps.Parent;
+  stepsSpn.SetBounds(spnSteps.left, spnSteps.Top, spnSteps.Width, spnSteps.Height);
+  stepsSpn.Anchors:=[akRight, akTop];
+  stepsSpn.MaxValue:= spnSteps.MaxValue;
+  stepsSpn.MinValue:= spnSteps.MinValue;
+  stepsSpn.Value:= spnSteps.Value;
+  stepsSpn.FOnChange:= spnSteps.OnChange;
 
   prog             := THSProgressBar.Create(Self);
   prog.BarShowText :=true;
@@ -1090,13 +1935,21 @@ begin
     btnLoadPicClick(btnLoadPic);
 end;
 
-var model:TFLUX4BDownloader;
-procedure TMainForm.Label10Click(Sender: TObject);
+procedure TMainForm.Image1MouseMove(Sender: TObject; Shift: TShiftState; X,
+  Y: Integer);
 begin
-  if Assigned(model.FHttp) then begin
-    model.FHttp.FHTTP.Terminate;
-  end;
-  pnlDL.Hide;
+
+end;
+
+var model:TQNNDownloader;
+procedure TMainForm.Label10Click(Sender: TObject);
+//var model:TQNNDownloader;
+begin
+  //model := TQNNDownloader.Create(BLF_NAME_SPACE, FLUX2_KLEIN_4B_DISTILLED_REPO_NAME, FLUX2_KLAIN_4B_REPO_PATHS, FLUX2_KLEIN_4B_REPO_FILES);
+  //if Assigned(model.FHttp) then begin
+  //  //model.FHttp.FHTTP.Terminate;
+  //end;
+  //pnlDL.Hide;
 end;
 
 procedure TMainForm.lblMoreClick(Sender: TObject);
@@ -1107,7 +1960,7 @@ end;
 procedure TMainForm.lblMoreMouseEnter(Sender: TObject);
 begin
   lblMore.ParentColor:=false;
-  lblMore.Color:=clBlack;
+  lblMore.Color := BACK_COLOR;
 end;
 
 procedure TMainForm.lblMoreMouseLeave(Sender: TObject);
@@ -1127,20 +1980,46 @@ begin
 end;
 
 procedure TMainForm.mnuDL1Click(Sender: TObject);
-
 begin
   try
+    model := TQNNDownloader.Create(
+      BLF_NAME_SPACE,
+      FLUX2_KLEIN_4B_DISTILLED_REPO_NAME,
+      FLUX2_KLAIN_4B_REPO_PATHS,
+      FLUX2_KLEIN_4B_REPO_FILES
+    );
     subDL.Position:=0;
     totalDL.Position:=0;
     pnlDL.Show;
     Application.ProcessMessages;
     model.OnProgress:=OnDownload;
     model.download(appPath+MODELS_DIR);
-    pnlDL.Hide;
+    model.Free();
   finally
-
     pnlDL.Hide;
   end;
+end;
+
+procedure TMainForm.mnuDL2Click(Sender: TObject);
+begin
+  try
+    model := TQNNDownloader.Create(
+      TONGYIMAI_NAME_SPACE,
+      ZIMAGE_TURBO_REPO_NAME,
+      ZIMAGE_REPO_PATHS,
+      ZIMAGE_TURBO_REPO_FILES
+    );
+    subDL.Position:=0;
+    totalDL.Position:=0;
+    pnlDL.Show;
+    Application.ProcessMessages;
+    model.OnProgress:=OnDownload;
+    model.download(appPath+MODELS_DIR);
+    model.Free();
+  finally
+    pnlDL.Hide;
+  end;
+
 end;
 
 procedure TMainForm.mnuDLOpenBLASClick(Sender: TObject);
@@ -1154,6 +2033,13 @@ begin
   {$else}
   ShowMessage('Install OpenBLAS from your package manager, e.g :'#13'"sudo apt install openblas"');
   {$endif}
+end;
+
+//const attr: longword = $884422;
+procedure TMainForm.Timer1Timer(Sender: TObject);
+begin
+  //assert(DwmSetWindowAttribute(MainForm.Handle, DWMWA_CAPTION_COLOR, @attr, SizeOf(Active))==S_OK);
+  //attr := RGBToColor((red(attr)+20) mod 255, (green(attr)+20) mod 255, (blue(attr)+20) mod 255);
 end;
 
 procedure TMainForm.checkExistingModels;
@@ -1173,7 +2059,7 @@ begin
       r := FindNext(sr)            ;
     end;
   finally
-    FindClose(sr);
+    SysUtils.FindClose(sr);
   end;
   if cmbModels.Items.Count>0 then cmbModels.ItemIndex:=0;
   if assigned(modeledit1) then begin
@@ -1189,11 +2075,36 @@ begin
   subDL.Position:=subReceived div $4FFFFF;
   i := subDL.Position mod length(DL_Symbols);
   subDL.Caption := DL_Symbols[i];
+
   totalDL.Max:=Total;
   totalDL.Position:=Received;
-  totalDL.Caption:=format('%d/%d', [totalDL.Position, totalDL.Max]);
+  totalDL.Caption:=format('%d/%d', [received, total]);
 
   Application.ProcessMessages;
+end;
+
+const
+  up:boolean = false;
+  ANIM_STEP = 2;
+procedure TMainForm.OnIdle(Sender: TObject; var done: boolean);
+begin
+
+
+end;
+
+procedure TMainForm.OnIdleEnd(Sender: TObject);
+begin
+  //if Shape1.top> 200 then up := true;
+  //if Shape1.top< 100 then up := false;
+  //if up then
+  //  Shape1.top := Shape1.top-ANIM_STEP
+  //else
+  //  Shape1.top := Shape1.top+ANIM_STEP;
+end;
+
+procedure TMainForm.loop(data: IntPtr);
+begin
+  sleep(1000)
 end;
 
 initialization

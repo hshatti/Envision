@@ -23,28 +23,7 @@ uses Sysutils, math, TypInfo, nVulkanHelper;
 
 type
   TQNNOperation = (
-        opActivate
-      , opActivate_swish
-      , opAdd
-      , opAxpy
-      , opBackward_bias
-      , opBackward_dropout
-      , opBackward_maxpool
-      , opBackward_scale
-      , opClamp
-      , opCol2im
-      , opCopy
-      , opCost_l2
-      , opCross_entropy
-      , opFill
-      , opFma
-      , opFma_scalar
-      , opForward_bias
-      , opForward_dropout
-      , opForward_fma
-      , opForward_maxpool
-      , opForward_scale
-      , opGemm_nn
+        opGemm_nn
       , opGemm_nt
       , opGemm_tn
       , opGemm_nn_WrapTiling
@@ -52,23 +31,9 @@ type
       , opGemm_tn_WrapTiling
       , opGradient
       , opIm2col
-      , opInverse_sqrt
-      , opMean
-      , opMean_var_gradient
-      , opMul
-      , opNorm
-      , opNorm_gradient
-      , opPower
-      , opScale
-      , opSoftmax
-      , opSub
-      , opUpsample
-      , opVariance
     );
 
 
-
-  { TVulkanNN }
 
   { TQNNVulkan }
 

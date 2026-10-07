@@ -26,7 +26,7 @@
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
             <Libraries Value="..\..\..\msys64\mingw64\lib;..\..\..\msys64\usr\lib;..\..\..\msys64\usr\lib\gcc\x86_64-pc-cygwin\15.2.0"/>
-            <OtherUnitFiles Value="..\src"/>
+            <OtherUnitFiles Value="..\..\..\src"/>
             <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
           </SearchPaths>
           <Parsing>
@@ -51,12 +51,14 @@
             <LinkSmart Value="True"/>
           </Linking>
           <Other>
-            <OtherDefines Count="5">
+            <CustomOptions Value="-dUSE_MULTITHREADING
+-dUSE_AVX2
+-dUSE_PROFILING"/>
+            <OtherDefines Count="4">
               <Define0 Value="USE_MULTITHREADING"/>
               <Define1 Value="DEBUG"/>
-              <Define2 Value="USE_FLASHATTENTION"/>
-              <Define3 Value="USE_CPP_GEMM"/>
-              <Define4 Value="USE_CPU"/>
+              <Define2 Value="USE_AVX2"/>
+              <Define3 Value="USE_PROFILING"/>
             </OtherDefines>
           </Other>
         </CompilerOptions>
@@ -182,10 +184,11 @@
       <CustomOptions Value="-dUSE_MULTITHREADING
 -dUSE_AVX2
 -dUSE_PROFILING"/>
-      <OtherDefines Count="3">
+      <OtherDefines Count="4">
         <Define0 Value="USE_MULTITHREADING"/>
         <Define1 Value="DEBUG"/>
         <Define2 Value="USE_AVX2"/>
+        <Define3 Value="USE_PROFILING"/>
       </OtherDefines>
     </Other>
   </CompilerOptions>

@@ -153,7 +153,7 @@ type
     class procedure QNNMatMulNT(const C, A, B: TMemoryBlock; const M, K, N:integer);   overload;
     class procedure QNNMatMulTN(const C, A, B: TMemoryBlock; const M, K, N:integer);   overload;
 
-    class procedure QNNMatTranspose(const dst, src: PSingle; const srcRows, srcCols: longint);
+    class procedure QNNMatTranspose(const dst, src: PSingle; const srcRows, srcCols: longint; srcStride:longint=0; dstStride:longint=0);
     class procedure QNNLinear(const dst, x, W, B:PSingle; const seqLen, inDIM, outDIM: integer);
     class procedure QNNLinearNoBias(const dst, x, W:PSingle; const seqLen, inDIM, outDIM: integer);
     class procedure QNNLinearNoBias_BF16(const dst, x:PSingle; const W: PBF16; const seqLen, inDIM, outDIM: integer);
@@ -221,9 +221,12 @@ type
     class procedure QNNUpSample(const dst, src: PSingle; const batch, channels, H, W:longint; const scale_h, scale_w: Single; const interpolation:TInterpolation = iNearest);
     class procedure QNNPatchify(const dst, src: PSingle; const batch, channels, H, W, patch_size: longint);
     class procedure QNNUnpatchify(const dst, src: PSingle; const batch, channels, H, W, patch_size: longint);
-    class procedure QNNPermut(const dst, src:PSingle;
-                          const axisPerm:TArray<byte>;
-                          const inShape:TArray<int64>; var outShape:TArray<Int64>);
+    class procedure QNNPermut(const dst, src:PSingle; const axisPerm:TArray<byte>; const inShape:TArray<int64>; var outShape:TArray<Int64>);
+    class procedure QNNReduce(const dst, src: PSingle; const inShape, reduceAxes: TArray<int64>; const reduceCb: TReduceFunc; const divideByCount: boolean; out outShape: TArray<int64>; const keepDims: boolean = false); overload;
+    class procedure QNNReduce(const dst, src: PSingle; const inShape, reduceAxes: TArray<int64>; const reduceOp: TReduceOp; const divideByCount: boolean; out outShape: TArray<int64>; const keepDims: boolean = false); overload;
+    class procedure QNNReduce(const dst, src: PSingle; const inShape, reduceAxes: TArray<int64>; const reduceCbVec: TReduceVecCb; const reduceCbBin: TReduceFunc; const divideByCount: boolean; out outShape: TArray<int64>; const keepDims: boolean = false); overload;   // [NEW:QNNReduceVec]
+    class procedure QNNBroadcastCombine(const dst, src, ref: PSingle; const srcShape, refShape: TArray<int64>; const cb: TReduceFunc; out outShape: TArray<int64>); overload;   // [NEW:QNNBroadcastCombine] elementwise binary-callback with numpy/torch broadcasting
+    class procedure QNNBroadcastCombine(const dst, src, ref: PSingle; const srcShape, refShape: TArray<int64>; const cbVec: TCombineVecCb; out outShape: TArray<int64>); overload;    // [NEW:QNNBroadcastCombineVec] vector-callback overload
     class procedure QNNCopy(const dst, src:PSingle; const N:integer); overload;
     class procedure QNNCopyStrided(const dst:PSingle; const dstStride:integer; const src:PSingle; const srcStride: integer; const N:integer); overload;
     class procedure QNNFill(const dst:PSingle; const val:Single; const N:integer; const stride:integer=1);
@@ -259,9 +262,9 @@ procedure printStat(const src:TMemoryBlock);                overload;
 //procedure writeTensor(const buf:TMemoryBlock);
 //function readTensor():TMemoryBlock;
 //function readArray():TArray<integer>;
-procedure compareArray(const a, b:TArray<Integer>);             overload;
+procedure compareArray(const a, b:TArray<Integer>; const Epsilon:single=0.0);             overload;
 procedure compareArray(const a, b: PInteger; const N:longint);  overload;
-procedure compareArray(const a, b: PSingle; const N:longint);  overload;
+procedure compareArray(const a, b: PSingle; const N:longint; const Epsilon:single=0.0);  overload;
 procedure printArray(const src:PSingle; const N:longint);     overload;
 procedure printArray(const src:PLongint; const N:longint);    overload;
 procedure printArray(const src:PInt64; const N:longint);    overload;
@@ -286,6 +289,9 @@ procedure AltPermut(const dst, src : PSingle; const InShape:TArray<int64>; const
 
 var
   hBLASLib : HMODULE;
+
+const
+  DEBUG_GEMM_DIM:boolean =false;
 
 
 implementation
@@ -341,13 +347,15 @@ var
 var y,x:longint;
 begin
 
+  if DEBUG_GEMM_DIM and IsConsole then
+    writeln(#13#10, TransA:10, TransB:10, M:10, N:10, K:10);
 
   //setLength(C2, M*N);
   //C2_PTR := pointer(C2);
   //for y:=0 to M-1 do
   //  move(C[y*ldc], C2_PTR[y*N], N*sizeOf(single));
 
-    cblas_sgemm(Order, TransA, TransB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+  cblas_sgemm(Order, TransA, TransB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
     //qgemm(Order, TransA, TransB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
 
   //setLength(C1, M*N);
@@ -536,11 +544,14 @@ end;
 class function TQNNSingleOPS.QNNSum(const N: integer; const src: PSingle; const stride: integer): Single;
 var i: integer;
 begin
-  // todo simdify mean
   result := 0;
   if stride=1 then
+    {$if defined(CPUX64) and defined(USE_AVX2)}
+    exit(sSum_avx2(N, src))
+    {$else}
     for i:=0 to N-1 do
       result := result + src[i]
+    {$endif}
   else
     for i:=0 to N-1 do
       result := result + src[i*stride];
@@ -1068,6 +1079,7 @@ class procedure TQNNSingleOPS.qscale(N:int64; alpha:single; X:PSingle; incX:int6
 var i:longint;
 begin
   // todo qscale Simdify
+  if alpha=1 then exit;
   if incX=1 then
     {$if defined(CPUX64) and defined(USE_AVX2)}
     sScaleInplace_avx2(N, X, alpha)
@@ -1188,14 +1200,14 @@ procedure gemm_nn( const M, N, K:int64;
                    );
 
 {$ifdef FPC}
-procedure tile(tm_start:IntPtr; data:pointer);
+procedure mtile(tm_start:IntPtr; data:pointer);
 {$else}
-var tile:TThreadProcNested;
+var mtile, ntile:TThreadProcNested;
 begin
-  tile := procedure (tm_start:IntPtr; data:pointer)
+  mtile := procedure (tm_start:IntPtr; data:pointer)
 {$endif}
 var
-  tm_finish, tk_start, tk_finish, tm, tk :int64;
+  tm_finish, tk_start, tk_finish, tm, tk, tk_i, tm_i :int64;
 begin
 
   //tm_start := 0;
@@ -1211,12 +1223,73 @@ begin
       tk_finish := tk_start + TILE_K;
       if tk_finish>K then tk_finish := K;
 
-      for tm := tm_start to tm_finish-1 do begin
-        for tk := tk_start to tk_finish-1 do begin
-          TQNNSingleOps.qaxpy(N, ALPHA*A[tm*lda + tk], B + tk*ldb, C + tm*ldc);
+      tm := tm_start;
+      {$if defined(CPUX64) and defined(USE_AVX2)}
+      while tm + 4 <= tm_finish do begin
+        tk := tk_start;
+        while tk + 2 <= tk_finish do begin
+          sAxpy_4x2_avx2(A + tm*lda + tk, B + tk*ldb, C + tm*ldc, N, lda, ldb, ldc, ALPHA);
+          inc(tk, 2)
         end;
-      end;
+        for tm_i := tm to tm + 3 do
+          for tk_i := tk to tk_finish-1 do
+            TQNNSingleOps.qaxpy(N, ALPHA*A[tm_i*lda + tk_i], B + tk_i*ldb, C + tm_i*ldc);
 
+        inc(tm, 4)
+      end;
+      {$endif}
+      while tm < tm_finish do begin
+        for tk := tk_start to tk_finish-1 do
+          TQNNSingleOps.qaxpy(N, ALPHA*A[tm*lda + tk], B + tk*ldb, C + tm*ldc);
+        inc(tm)
+      end;
+      inc(tk_start, TILE_K)
+    end;
+    //inc(tm_start, TILE_M)
+  //end;
+end;
+
+{$ifdef FPC}
+procedure ntile(tn_start:IntPtr; data:pointer);
+{$else}
+  ntile := procedure (tm_start:IntPtr; data:pointer)
+{$endif}
+var
+  tn_span, tn_finish, tk_start, tk_finish, tm, tk, tk_i, tm_i :int64;
+begin
+
+  //tm_start := 0;
+  //while tm_start < CEIL_DIV(M, TILE_M)*TILE_M do begin
+    tn_finish := tn_start + TILE_N;
+    if tn_finish>N then tn_finish := N;
+    tn_span := tn_finish - tn_start;
+
+    for tm:=0 to M-1 do
+      TQNNSingleOps.qscale(tn_span, BETA, C+tm*ldc + tn_start, 1);
+
+    tk_start := 0;
+    while tk_start<K {CEIL_DIV(K, TILE_K)*TILE_K} do begin
+      tk_finish := tk_start + TILE_K;
+      if tk_finish>K then tk_finish := K;
+
+      tm := 0;
+      {$if defined(CPUX64) and defined(USE_AVX2)}
+      while tm + 4 <= M do begin
+        tk := tk_start;
+        while tk + 2 <= tk_finish do begin
+          sAxpy_4x2_avx2(A + tm*lda + tk, B + tk*ldb + tn_start, C + tm*ldc + tn_start, tn_span, lda, ldb, ldc, ALPHA);
+          inc(tk, 2)
+        end;
+        for tm_i := tm to tm + 3 do
+          for tk_i := tk to tk_finish-1 do
+            TQNNSingleOps.qaxpy(tn_span, ALPHA*A[tm_i*lda + tk_i], B + tk_i*ldb + tn_start, C + tm_i*ldc + tn_start);
+
+        inc(tm, 4)
+      end;
+      {$endif}
+      for tm_i := tm to M-1 do
+        for tk := tk_start to tk_finish-1 do
+          TQNNSingleOps.qaxpy(tn_span, ALPHA*A[tm_i*lda + tk], B + tk*ldb + tn_start, C + tm_i*ldc + tn_start);
       inc(tk_start, TILE_K)
     end;
     //inc(tm_start, TILE_M)
@@ -1227,8 +1300,12 @@ var i:Int64;
 {$ifdef fpc}
 begin
 {$endif}
+
   {$ifdef USE_MULTITHREADING}
-  mp.&For(tile, 0, CEIL_DIV(M, TILE_M)*TILE_M, nil, TILE_M);
+  if (M>N) or (N<$20000)   then
+    mp.&For(mtile, 0, CEIL_DIV(M, TILE_M)*TILE_M, nil, TILE_M)
+  else
+    mp.&For(ntile, 0, CEIL_DIV(N, TILE_N)*TILE_N, nil, TILE_N);
   {$else}
   i:=0;
   while i<CEIL_DIV(M, TILE_M)*TILE_M-1 do begin
@@ -1247,11 +1324,11 @@ procedure gemm_nt( const M, N, K:int64;
                    );
 
 {$ifdef FPC}
-procedure tile(tm_start:IntPtr; data:pointer);
+procedure mtile(tm_start:IntPtr; data:pointer);
 {$else}
-var tile:TThreadProcNested;
+var mtile:TThreadProcNested;
 begin
-  tile := procedure (tm_start:IntPtr; data:pointer)
+  mtile := procedure (tm_start:IntPtr; data:pointer)
 {$endif}
 var
   tm_finish, tn_start, tn_finish, tm, tn
@@ -1274,32 +1351,28 @@ begin
     while tn_start<N{CEIL_DIV(N, TILE_N)*TILE_N} do begin
       tn_finish := tn_start + TILE_N;
       if tn_finish>N then tn_finish := N;
-      //n_span := tn_finish - tn_start;
-      //tk_start := 0;
-      (* K tiling is slower,  perhaps we need to select TILE values
-       based on the matricies dimensions and the CPU L1/L2 sizes   *)
-      //while tk_start < K do begin
-      //  tk_finish := tk_start + TILE_K;
-      //  if tk_finish>K then tk_finish := K;
-      //  k_span := tk_finish - tk_start;
-      //  for tm:=tm_start to tm_finish-1 do begin
-      //    CC := C + tm*ldc;
-      //    for tn:= tn_start to tn_finish-1 do begin
-      //      CC[tn] := CC[tn] + ALPHA*TQNNSingleOPS.qdot(k_span, A + tm*lda + tk_start, B + tn*ldb + tk_start);
-      //    end;
-      //  end;
-      //  inc(tk_start, TILE_K)
-      //end;
 
-      //for tm := tm_start to tm_finish-1 do begin
-      //  CC := C + tm*ldc;
-      //  for tn := tn_start to tn_finish-1 do begin
-      //    a_part := ALPHA*TQNNSingleOps.qdot(K, A + tm*lda, B + tn*ldb);
-      //    CC[tn] := CC[tn] + a_part;
-      //  end;
-      //end;
-
-      for tm := tm_start to tm_finish-1 do begin
+      // 4x4 AVX2 blocks: 4 rows of A x 4 columns of B per call
+      tm := tm_start;
+      {$if defined(CPUX64) and defined(USE_AVX2)} // todo sdot_4x4_avx2 produces wrong values on posix, revisiting later
+      while tm + 4 <= tm_finish do begin
+        CC := C + tm*ldc;
+        tn := tn_start;
+        while tn + 4 <= tn_finish do begin
+          sDot_4x4_avx2(A + tm*lda, B + tn*ldb, CC + tn, K, lda, ldb, ldc, ALPHA);
+          inc(tn, 4)
+        end;
+        // tail columns of these 4 rows
+        while tn < tn_finish do begin
+          a_part := ALPHA*TQNNSingleOps.qdot(K, A + tm*lda, B + tn*ldb);
+          CC[tn] := CC[tn] + a_part;
+          inc(tn)
+        end;
+        inc(tm, 4)
+      end;
+      {$endif}
+      // remaining 1..3 rows: original per-row path
+      while tm < tm_finish do begin
         CC := C + tm*ldc;
         tn := tn_start;
         {$if defined(CPUX64) and defined(USE_AVX2)}
@@ -1308,11 +1381,12 @@ begin
           inc(tn, 4)
         end;
         {$endif}
-        while tn<tn_finish do begin
+        while tn < tn_finish do begin
           a_part := ALPHA*TQNNSingleOps.qdot(K, A + tm*lda, B + tn*ldb);
           CC[tn] := CC[tn] + a_part;
           inc(tn)
         end;
+        inc(tm)
       end;
       inc(tn_start, TILE_N)
     end;
@@ -1326,7 +1400,7 @@ begin
   //TQNNSingleOPS.cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, M, N, K, alpha, A, lda, B, ldb, BETA, C, ldc);
   //exit;
   {$ifdef USE_MULTITHREADING}
-  mp.&For(tile, 0, CEIL_DIV(M, TILE_M)*TILE_M, nil, TILE_M);
+  mp.&For(mtile, 0, CEIL_DIV(M, TILE_M)*TILE_M, nil, TILE_M);
   {$else}
   i:=0;
   while i<CEIL_DIV(M, TILE_M)*TILE_M-1 do begin
@@ -1394,12 +1468,10 @@ begin
   {$endif}
 end;
 
-
-class procedure TQNNSingleOPS.qgemm(Order:CBLAS_ORDER; TransA:CBLAS_TRANSPOSE; TransB:CBLAS_TRANSPOSE; M:int64; N:int64; K:int64;
+// a naive gemm used only for comparizon and testing!
+procedure test_gemm(Order:CBLAS_ORDER; TransA:CBLAS_TRANSPOSE; TransB:CBLAS_TRANSPOSE; M:int64; N:int64; K:int64;
   alpha:single; A:PSingle; lda:int64; B:PSingle; ldb:int64; beta:single; C:PSingle; ldc:int64); WINAPI;
 
-
-(*
 {$ifdef FPC}
 procedure gemm_thread(const start, finish: IntPtr; const data:pointer);
 {$else}
@@ -1414,20 +1486,18 @@ var
   AA, BB, CC : PSingle;
   idx : IntPtr;
 begin
-  {$ifdef USE_CPP_GEMM}
-  cpp_sgemm(TransA, TransB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, start, 1);
-  {$else}
+
+  assert((order=CblasRowMajor) and not((TransA=CblasTrans) and (TransB=CblasTrans)),'ERROR : Operation is not supported using the provided arguments!');
 
   if (transA=CblasNoTrans) and (transB=CblasNoTrans)then begin
-
     for idx :=start to finish do begin
       CC := C + idx*ldc;
       AA := A + idx*lda;
-      qscale(N, BETA, CC, 1);
+      for kk:=0 to N-1 do CC[kk] := CC[kk]*BETA;
       for kk:= 0 to K-1 do begin
-        qaxpy(N, alpha*AA[kk], B+kk*ldb, CC);
-        //for nn:=0 to N-1 do
-        //  CC[nn] := CC[nn] + a_part*B[kk*ldb + nn];
+        a_part := ALPHA*AA[kk];
+        for nn:=0 to N-1 do
+          CC[nn] := CC[nn] + a_part*B[kk*ldb + nn];
       end;
     end;
     exit;
@@ -1436,14 +1506,13 @@ begin
     for idx:=start to finish do begin
       CC := C + idx*ldc;
       AA := A + idx*lda;
-      qscale(N, BETA, CC, 1);
+      for kk:=0 to N-1 do CC[kk] := CC[kk]*BETA;
       for nn := 0 to N-1 do begin
           BB := B + nn*ldb;
-          a_part := qdot(K, AA, BB);
-          //a_part := 0.0;
-          //for kk:=0 to K-1 do begin
-          //    a_part := a_part + AA[kk]*BB[kk];
-          //end;
+          a_part := 0.0;
+          for kk:=0 to K-1 do begin
+            a_part := a_part + AA[kk]*BB[kk];
+          end;
           CC[nn] := CC[nn] + ALPHA*a_part;
       end;
     end;
@@ -1452,31 +1521,45 @@ begin
   if (transA=CblasTrans) and (transB=CblasNoTrans)then begin
     for idx :=start to finish do begin
       CC := C + idx*ldc;
-      qscale(N, BETA, CC, 1);
+      for kk:=0 to N-1 do CC[kk] := CC[kk]*BETA;
       for kk:=0 to K-1 do begin
         a_part := ALPHA*A[kk*lda + idx];
         BB := B + kk*ldb;
-        qaxpy(N, a_part, BB, CC);
-        //for nn:=0 to N-1 do begin
-        //  CC[nn] := CC[nn] + a_part*BB[nn]
-        //end;
+        for nn:=0 to N-1 do begin
+          CC[nn] := CC[nn] + a_part*BB[nn]
+        end;
       end;
     end;
     exit;
   end;
-  {$endif}
 end;
-
 {$ifdef FPC}
 begin
 {$endif}
-*)
+
+    // naive GEMM
+    {$if defined(USE_MULTITHREADING)}
+    mp.&For(gemm_thread, 0, M-1);
+    {$else}
+    gemm_thread(0, M-1, nil);
+    {$endif}
+end;
+
+class procedure TQNNSingleOPS.qgemm(Order:CBLAS_ORDER; TransA:CBLAS_TRANSPOSE; TransB:CBLAS_TRANSPOSE; M:int64; N:int64; K:int64;
+  alpha:single; A:PSingle; lda:int64; B:PSingle; ldb:int64; beta:single; C:PSingle; ldc:int64); WINAPI;
+
+var tmp:TArray<single>;
 begin
   // todo qgemm Simdify
   assert((order=CblasRowMajor) and not((TransA=CblasTrans) and (TransB=CblasTrans)),'ERROR : Operation is not supported using the provided arguments!');
 
-  if (transA=CblasNoTrans) and (transB=CblasNoTrans) then
+  if (transA=CblasNoTrans) and (transB=CblasNoTrans) then begin
+    //setLength(tmp, N*K);
+    //QNNMatTranspose(pointer(tmp), B, K, N, ldb);
+    //gemm_nt(M, N, K, ALPHA, A, lda, pointer(tmp), K , BETA, C, ldc);
+    //setLength(tmp, 0)
     gemm_nn(M, N, K, ALPHA, A, lda, B, ldb , BETA, C, ldc)
+  end
   else
   if (transA=CblasNoTrans) and (transB=CblasTrans) then
     gemm_nt(M, N, K, ALPHA, A, lda, B, ldb , BETA, C, ldc)
@@ -1485,14 +1568,6 @@ begin
     gemm_tn(M, N, K, ALPHA, A, lda, B, ldb , BETA, C, ldc)
   else
   exit;
-(*
-  // naive GEMM
-  {$if defined(USE_MULTITHREADING)}
-  mp.&For(gemm_thread, 0, M-1);
-  {$else}
-  gemm_thread(0, M-1, nil);
-  {$endif}
-  *)
 end;
 
 function MIN(const a, b:longint):longint;inline;
@@ -1796,12 +1871,64 @@ begin
     , C, N);
 end;
 
-class procedure TQNNSingleOPS.QNNMatTranspose(const dst, src: PSingle; const srcRows, srcCols: longint);
-var c, r:longint;
+class procedure TQNNSingleOPS.QNNMatTranspose(const dst, src: PSingle;
+  const srcRows, srcCols: longint; srcStride: longint; dstStride: longint);
+const TBLK = 32;
+var
+  //i, k0, n0, tk, nj: NativeInt;
+  c, r:longint;
 begin
+
+  if srcStride=0 then srcStride := srcCols;
+  if dstStride=0 then dstStride := srcRows;
   for c:=0 to srcCols-1 do
     for r:=0 to srcRows-1 do
-      dst[c*srcRows + r] := src[r*srcCols + c]
+      dst[c*dstStride + r] := src[r*srcStride + c]
+  //
+  //k0 := 0;
+  //while k0<srcRows do begin
+  //  n0 := 0;
+  //  while n0<srcCols do begin
+  //    for tk := k0 to k0+TBLK-1 do begin
+  //      if tk>=srcRows then break;
+  //      for nj := n0 to n0+TBLK-1 do
+  //        if nj<srcCols then
+  //          dst[nj*dstStride + tk] := src[tk*srcStride + nj];
+  //    end;
+  //    inc(n0, TBLK)
+  //  end;
+  //  inc(k0, TBLK)
+  //end;
+
+  //k0 := 0;
+  //while k0+TBLK<=srcRows do begin                       // full k-blocks
+  //  n0 := 0;
+  //  while n0+TBLK<=srcCols do begin                     // full n-blocks
+  //    for tk := 0 to TBLK-1 do
+  //      for nj := 0 to TBLK-1 do
+  //        dst[(n0+nj)*dstStride + (k0+tk)] := src[(k0+tk)*srcStride + (n0+nj)];
+  //    inc(n0, TBLK)
+  //  end;
+  //  if n0<srcCols then begin                            // tail columns
+  //    for tk := k0 to k0+TBLK-1 do
+  //      for nj := n0 to srcCols-1 do
+  //        dst[nj*dstStride + tk] := src[tk*srcStride + nj];
+  //  end;
+  //  inc(k0, TBLK)
+  //end;
+  //if k0<srcRows then begin                              // tail rows
+  //  n0 := 0;
+  //  while n0+TBLK<=srcCols do begin
+  //    for tk := k0 to srcRows-1 do
+  //      for nj := 0 to TBLK-1 do
+  //        dst[(n0+nj)*dstStride + tk] := src[tk*srcStride + (n0+nj)];
+  //    inc(n0, TBLK)
+  //  end;
+  //  for tk := k0 to srcRows-1 do                        // bottom-right corner
+  //    for nj := n0 to srcCols-1 do
+  //      dst[nj*dstStride + tk] := src[tk*srcStride + nj];
+  //end;
+
 end;
 
 class procedure TQNNSingleOPS.QNNLinear(const dst, x, W, B: PSingle; const seqLen, inDIM,
@@ -1954,7 +2081,7 @@ begin
       mt);
 end;
 
-//{$define USE_IM2Col}
+{$define USE_IM2Col}
 class procedure TQNNSingleOPS.QNNConv2d(const dst, src, weights, bias: PSingle; const in_ch,
   out_ch, H, W, kH, kW, stride, padding: longint; const batch: longint);
 const MAX_COL_SIZE = 256 * 1024 * 1024;
@@ -3372,10 +3499,9 @@ begin
 end;
 *)
 
-class procedure TQNNSingleOPS.QNNPermut(
-  const dst, src: PSingle;
-  const axisPerm: TArray<byte>;
-  const inShape: TArray<int64>; var outShape:TArray<int64>);
+class procedure TQNNSingleOPS.QNNPermut(const dst, src: PSingle;
+  const axisPerm: TArray<byte>; const inShape: TArray<int64>;
+  var outShape: TArray<Int64>);
 var
   i, lvl, {ndims, }total: int64;
   outLinear, inLinear: int64;
@@ -3441,67 +3567,77 @@ end;
 // Callback type (declare once near the class):
 //   TReduceFunc = function(const a, b: Single): Single;
 // ============================================================================
-{
-class procedure TQNNSingleOPS.QNNReduce(
-  const dst, src: PSingle;
-  const inShape: TArray<int64>;
-  const reduceAxes: TArray<int64>;
-  const reduceCb: TReduceFunc;
-  const divideByCount: boolean;
-  out outShape: TArray<int64>);
+
+class procedure TQNNSingleOPS.QNNReduce(const dst, src: PSingle; const inShape,
+  reduceAxes: TArray<int64>; const reduceCb: TReduceFunc;
+  const divideByCount: boolean; out outShape: TArray<int64>;
+  const keepDims: boolean);
 var
-  ndims, outNdim, na, i, j, k, d, oLin, rem, v, base, extra, t, reduceCount, st: int64;
-  inStrides, outStrides, keepAxes, rIdx: TArray<int64>;
+  ndims, outNdim, na, i, j, d, oLin, lvl, base, extra, t, reduceCount, st, totalOut: int64;
+  inStrides, dimMapping, rIdx, oIdx: TArray<int64>;
   toReduce: TArray<boolean>;
-  acc: Single;
+  acc, invCount: Single;
 begin
   ndims := length(inShape);
   na    := length(reduceAxes);
+
+  // nothing to reduce => identity copy (outShape = inShape, keepDims is irrelevant)
+  if na = 0 then begin
+    outShape := Copy(inShape);
+    QNNCopy(dst, src, product(inShape));
+    exit;
+  end;
 
   // validate & mark reduced axes
   setLength(toReduce, ndims);
   for i := 0 to ndims-1 do toReduce[i] := False;
   for j := 0 to na-1 do begin
     d := reduceAxes[j];
-    if (d < 0) or (d >= ndims) then
-      raise Exception.Create(Format('QNNReduce: axis %d out of range [0..%d]', [d, ndims-1]));
-    if toReduce[d] then
-      raise Exception.Create(Format('QNNReduce: duplicate axis %d', [d]));
+    Assert((d >= 0) and (d < ndims), Format('QNNReduce: axis %d out of range [0..%d]', [d, ndims-1]));
+    Assert(not toReduce[d], Format('QNNReduce: duplicate axis %d', [d]));
     toReduce[d] := True;
   end;
 
-  // build keepAxes (original order) and outShape
-  outNdim := 0;
-  for i := 0 to ndims-1 do if not toReduce[i] then Inc(outNdim);
-  setLength(keepAxes, outNdim);
-  setLength(outShape, outNdim);
-  j := 0;
-  for i := 0 to ndims-1 do
-    if not toReduce[i] then begin
-      keepAxes[j] := i;
-      outShape[j] := inShape[i];
-      Inc(j);
+  // build dimMapping (output dim -> input dim) and outShape
+  if keepDims then begin
+    outNdim := ndims;
+    setLength(outShape, ndims);
+    setLength(dimMapping, ndims);
+    for i := 0 to ndims-1 do begin
+      dimMapping[i] := i;
+      if toReduce[i] then outShape[i] := 1
+      else outShape[i] := inShape[i];
     end;
+  end else begin
+    outNdim := 0;
+    for i := 0 to ndims-1 do if not toReduce[i] then Inc(outNdim);
+    setLength(outShape, outNdim);
+    setLength(dimMapping, outNdim);
+    j := 0;
+    for i := 0 to ndims-1 do
+      if not toReduce[i] then begin
+        dimMapping[j] := i;
+        outShape[j] := inShape[i];
+        Inc(j);
+      end;
+  end;
 
-  inStrides  := getStrides(inShape);
-  outStrides := getStrides(outShape);
+  totalOut := product(outShape);
+  if totalOut = 0 then exit;
 
-  // total number of elements removed by the reduction
+  inStrides := getStrides(inShape);
+
   reduceCount := 1;
   for j := 0 to na-1 do reduceCount := reduceCount * inShape[reduceAxes[j]];
+  Assert(reduceCount > 0, 'QNNReduce: reduced volume is empty');
+  if divideByCount then invCount := 1.0 / reduceCount;
 
+  setLength(oIdx, outNdim);
+  for i := 0 to outNdim-1 do oIdx[i] := 0;
   setLength(rIdx, na);
-  for oLin := 0 to product(outShape)-1 do begin
-    // decode output linear index into kept-dim indices -> input base offset
-    rem  := oLin;
-    base := 0;
-    for j := 0 to outNdim-1 do begin
-      v := rem div outStrides[j];
-      rem := rem mod outStrides[j];
-      Inc(base, v * inStrides[keepAxes[j]]);
-    end;
 
-    // fold: start from first reduced combination, then combine the rest
+  base := 0;
+  for oLin := 0 to totalOut-1 do begin
     acc := src[base];
     if na = 1 then begin
       st := inStrides[reduceAxes[0]];
@@ -3510,26 +3646,562 @@ begin
     end
     else begin
       for j := 0 to na-1 do rIdx[j] := 0;
+      extra := 0;
       for t := 1 to reduceCount-1 do begin
-        // advance odometer over the reduced axes
         j := na-1;
+        //for j := na-1 downto 0 do begin
+        //  if rIdx[j] + 1 < inShape[reduceAxes[j]] then break;
+        //  Dec(extra, rIdx[j] * inStrides[reduceAxes[j]]);
+        //  rIdx[j] := 0;
+        //end;
         while (j >= 0) and (rIdx[j] + 1 >= inShape[reduceAxes[j]]) do begin
+          Dec(extra, rIdx[j] * inStrides[reduceAxes[j]]);
           rIdx[j] := 0;
           Dec(j);
         end;
         Inc(rIdx[j]);
-        extra := 0;
-        for k := 0 to na-1 do
-          Inc(extra, rIdx[k] * inStrides[reduceAxes[k]]);
+        Inc(extra, inStrides[reduceAxes[j]]);
         acc := reduceCb(acc, src[base + extra]);
       end;
     end;
 
-    if divideByCount then acc := acc / reduceCount;
+    if divideByCount then acc := acc * invCount;
     dst[oLin] := acc;
+
+    // advance kept-dims odometer (incremental base, no div/mod)
+    lvl := outNdim-1;
+    while (lvl >= 0) and (oIdx[lvl] + 1 >= outShape[lvl]) do begin
+      Dec(base, (outShape[lvl]-1) * inStrides[dimMapping[lvl]]);
+      oIdx[lvl] := 0;
+      Dec(lvl);
+    end;
+    if lvl >= 0 then begin
+      Inc(oIdx[lvl]);
+      Inc(base, inStrides[dimMapping[lvl]]);
+    end;
   end;
 end;
-}
+
+class procedure TQNNSingleOPS.QNNReduce(const dst, src: PSingle; const inShape,
+  reduceAxes: TArray<int64>; const reduceOp: TReduceOp;
+  const divideByCount: boolean; out outShape: TArray<int64>;
+  const keepDims: boolean);
+var
+  ndims, outNdim, na, i, j, d, oLin, lvl, base, extra, t, reduceCount, st, totalOut: int64;
+  inStrides, dimMapping, rIdx, oIdx: TArray<int64>;
+  toReduce: TArray<boolean>;
+  acc, v, invCount: Single;
+  rowPtr: PSingle;
+begin
+  ndims := length(inShape);
+  na    := length(reduceAxes);
+
+  // nothing to reduce => identity copy (outShape = inShape, keepDims is irrelevant)
+  if na = 0 then begin
+    outShape := Copy(inShape);
+    QNNCopy(dst, src, product(inShape));
+    exit;
+  end;
+
+  setLength(toReduce, ndims);
+  for i := 0 to ndims-1 do toReduce[i] := False;
+  for j := 0 to na-1 do begin
+    d := reduceAxes[j];
+    Assert((d >= 0) and (d < ndims), Format('QNNReduce: axis %d out of range [0..%d]', [d, ndims-1]));
+    Assert(not toReduce[d], Format('QNNReduce: duplicate axis %d', [d]));
+    toReduce[d] := True;
+  end;
+
+  // build dimMapping (output dim -> input dim) and outShape
+  if keepDims then begin
+    outNdim := ndims;
+    setLength(outShape, ndims);
+    setLength(dimMapping, ndims);
+    for i := 0 to ndims-1 do begin
+      dimMapping[i] := i;
+      if toReduce[i] then outShape[i] := 1
+      else outShape[i] := inShape[i];
+    end;
+  end else begin
+    outNdim := 0;
+    for i := 0 to ndims-1 do if not toReduce[i] then Inc(outNdim);
+    setLength(outShape, outNdim);
+    setLength(dimMapping, outNdim);
+    j := 0;
+    for i := 0 to ndims-1 do
+      if not toReduce[i] then begin
+        dimMapping[j] := i;
+        outShape[j] := inShape[i];
+        Inc(j);
+      end;
+  end;
+
+  totalOut := product(outShape);
+  if totalOut = 0 then exit;
+
+  inStrides := getStrides(inShape);
+
+  reduceCount := 1;
+  for j := 0 to na-1 do reduceCount := reduceCount * inShape[reduceAxes[j]];
+  Assert(reduceCount > 0, 'QNNReduce: reduced volume is empty');
+  if divideByCount then invCount := 1.0 / reduceCount;
+
+  setLength(oIdx, outNdim);
+  for i := 0 to outNdim-1 do oIdx[i] := 0;
+  setLength(rIdx, na);
+
+  base := 0;
+  for oLin := 0 to totalOut-1 do begin
+    rowPtr := @src[base];
+
+    if (na = 1) and (reduceCount <= MaxInt) and (inStrides[reduceAxes[0]] <= MaxInt) then begin
+      // single-axis fast path: reuse SIMD-capable helpers (AVX2 on x86_64)
+      st := inStrides[reduceAxes[0]];
+      case reduceOp of
+        ropSum : acc := QNNSum  (reduceCount, rowPtr, st);
+        ropMax : acc := QNNMax  (reduceCount, rowPtr, nil, st);
+        ropMin : acc := QNNMin  (reduceCount, rowPtr, nil, st);
+        ropProd: begin
+                   acc := 1.0;
+                   if st = 1 then
+                     for t := 0 to reduceCount-1 do acc := acc * rowPtr[t]
+                   else
+                     for t := 0 to reduceCount-1 do acc := acc * rowPtr[t*st];
+                 end;
+      end;
+    end
+    else if na = 1 then begin
+      // single axis, too large for the integer helpers - scalar strided fold
+      st := inStrides[reduceAxes[0]];
+      acc := rowPtr[0];
+      case reduceOp of
+        ropSum : for t := 1 to reduceCount-1 do acc := acc + rowPtr[t*st];
+        ropMax : for t := 1 to reduceCount-1 do if rowPtr[t*st] > acc then acc := rowPtr[t*st];
+        ropMin : for t := 1 to reduceCount-1 do if rowPtr[t*st] < acc then acc := rowPtr[t*st];
+        ropProd: for t := 1 to reduceCount-1 do acc := acc * rowPtr[t*st];
+      end;
+    end
+    else begin
+      // multi-axis: inline scalar fold with incremental offset update
+      for j := 0 to na-1 do rIdx[j] := 0;
+      extra := 0;
+      acc := src[base];
+      for t := 1 to reduceCount-1 do begin
+        j := na-1;
+        while (j >= 0) and (rIdx[j] + 1 >= inShape[reduceAxes[j]]) do begin
+          Dec(extra, rIdx[j] * inStrides[reduceAxes[j]]);
+          rIdx[j] := 0;
+          Dec(j);
+        end;
+        Inc(rIdx[j]);
+        Inc(extra, inStrides[reduceAxes[j]]);
+        v := rowPtr[extra];
+        case reduceOp of
+          ropSum : acc := acc + v;
+          ropMax : if v > acc then acc := v;
+          ropMin : if v < acc then acc := v;
+          ropProd: acc := acc * v;
+        end;
+      end;
+    end;
+
+    if divideByCount then acc := acc * invCount;
+    dst[oLin] := acc;
+
+    // advance kept-dims odometer (incremental base, no div/mod)
+    lvl := outNdim-1;
+    while (lvl >= 0) and (oIdx[lvl] + 1 >= outShape[lvl]) do begin
+      Dec(base, (outShape[lvl]-1) * inStrides[dimMapping[lvl]]);
+      oIdx[lvl] := 0;
+      Dec(lvl);
+    end;
+    if lvl >= 0 then begin
+      Inc(oIdx[lvl]);
+      Inc(base, inStrides[dimMapping[lvl]]);
+    end;
+  end;
+end;
+
+// [NEW:QNNReduceVec] vector-run reduction overload.
+// Numpy-style reduction over one or more axes using SIMD-friendly fold callbacks:
+//   reduceCbVec(N, src, stride)  folds the strided run  src[0], src[s], src[2s],
+//                                ... back to a Single (e.g. a QNNSum/QNNMax wrapper).
+//   reduceCbBin(a, b)            combines two partial results when the reduced axes
+//                                span more than one strided run (e.g. add, max).
+//                                May be nil when the whole reduced slice is a single
+//                                strided run (Asserted if actually needed).
+// Exactly ONE reduceCbVec() call per output element whenever:
+//   - a single axis is reduced (any position):   stride = inStrides[axis]
+//   - the reduced axes (as a SET) are the trailing {ndims-na .. ndims-1} dims:
+//     contiguous run -> stride 1, zero copy
+//   - every reduced axis but the innermost one has size 1: the reduced volume
+//     collapses onto that single axis (stride = inStrides[innermost])
+// Any OTHER multi-axis slicing decomposes buffer-free into strided fibers along
+// the innermost reduced axis with size > 1; their partial results are recombined
+// pairwise with reduceCbBin. reduceCount and run strides must fit in longint
+// (callback params); asserted at runtime.
+class procedure TQNNSingleOPS.QNNReduce(const dst, src: PSingle; const inShape,
+  reduceAxes: TArray<int64>; const reduceCbVec: TReduceVecCb; const reduceCbBin: TReduceFunc;
+  const divideByCount: boolean; out outShape: TArray<int64>;
+  const keepDims: boolean);
+var
+  ndims, outNdim, na, i, j, d, oLin, lvl, base, st, runN, p, fiberN, nCombos, off, combo, totalOut, reduceCount: int64;
+  inStrides, dimMapping, oIdx, qDim, qSz, qSt, qIdx: TArray<int64>;
+  toReduce: TArray<boolean>;
+  acc, invCount: Single;
+  useSingleCall, contiguous: boolean;
+begin
+  ndims := length(inShape);
+  na    := length(reduceAxes);
+
+  // nothing to reduce => identity copy (outShape = inShape)
+  if na = 0 then begin
+    outShape := Copy(inShape);
+    QNNCopy(dst, src, product(inShape));
+    exit;
+  end;
+
+  // validate & mark reduced axes
+  setLength(toReduce, ndims);
+  for i := 0 to ndims-1 do toReduce[i] := False;
+  for j := 0 to na-1 do begin
+    d := reduceAxes[j];
+    Assert((d >= 0) and (d < ndims), Format('QNNReduce: axis %d out of range [0..%d]', [d, ndims-1]));
+    Assert(not toReduce[d], Format('QNNReduce: duplicate axis %d', [d]));
+    toReduce[d] := True;
+  end;
+
+  // build dimMapping (output dim -> input dim) and outShape
+  if keepDims then begin
+    outNdim := ndims;
+    setLength(outShape, ndims);
+    setLength(dimMapping, ndims);
+    for i := 0 to ndims-1 do begin
+      dimMapping[i] := i;
+      if toReduce[i] then outShape[i] := 1
+      else outShape[i] := inShape[i];
+    end;
+  end else begin
+    outNdim := 0;
+    for i := 0 to ndims-1 do if not toReduce[i] then Inc(outNdim);
+    setLength(outShape, outNdim);
+    setLength(dimMapping, outNdim);
+    j := 0;
+    for i := 0 to ndims-1 do
+      if not toReduce[i] then begin
+        dimMapping[j] := i;
+        outShape[j] := inShape[i];
+        Inc(j);
+      end;
+  end;
+
+  totalOut := product(outShape);
+  if totalOut = 0 then exit;
+
+  inStrides := getStrides(inShape);
+
+  reduceCount := 1;
+  for j := 0 to na-1 do reduceCount := reduceCount * inShape[reduceAxes[j]];
+  Assert(reduceCount > 0, 'QNNReduce: reduced volume is empty');
+  Assert(reduceCount <= MaxInt, 'QNNReduceVec: reduced run exceeds 2^31-1 elements');
+
+  // plan the fold: ONE reduceCbVec call when the whole reduced slice is a single run
+  // (single axis, trailing-block contiguous, or volume collapsed onto one axis);
+  // otherwise decompose into strided fibers along the innermost reduced axis with
+  // size>1 and recombine the partials pairwise with reduceCbBin.
+  useSingleCall := True;
+  nCombos := 1;
+  if na = 1 then begin
+    // any single axis (in-between axis => stride fold; last axis => stride 1)
+    runN := inShape[reduceAxes[0]];
+    st   := inStrides[reduceAxes[0]];
+  end else begin
+    // reduced axes as a SET are the trailing block => contiguous, zero-copy run
+    contiguous := True;
+    for i := 0 to na-1 do
+      if not toReduce[ndims - na + i] then begin
+        contiguous := False;
+        break;
+      end;
+    if contiguous then begin
+      runN := reduceCount;
+      st   := 1;
+    end else begin
+      // strided fiber = innermost reduced axis with size > 1
+      p := -1;
+      for j := 0 to na-1 do
+        if (inShape[reduceAxes[j]] > 1) and ((p = -1) or (reduceAxes[j] > p)) then
+          p := reduceAxes[j];
+      if p = -1 then begin
+        // every reduced axis has size 1 => reduced volume is a single element
+        runN := 1;
+        st   := 1;
+      end else begin
+        fiberN  := inShape[p];                // elements per strided fiber
+        nCombos := reduceCount div fiberN;    // fibers across the other reduced axes
+        if nCombos = 1 then begin
+          // all other reduced axes are size 1 => the one strided run covers it all
+          runN := fiberN;
+          st   := inStrides[p];
+        end else begin
+          useSingleCall := False;
+          st := inStrides[p];
+          Assert(Assigned(reduceCbBin),
+            'QNNReduceVec: multi-axis strided reduce requires a binary combine callback (reduceCbBin)');
+          // Q = reduced axes minus p (odometer over their combined offsets)
+          setLength(qDim, na-1);
+          setLength(qSz,  na-1);
+          setLength(qSt,  na-1);
+          setLength(qIdx, na-1);
+          j := 0;
+          for i := 0 to na-1 do
+            if reduceAxes[i] <> p then begin
+              qDim[j] := reduceAxes[i];
+              qSz[j]  := inShape[qDim[j]];
+              qSt[j]  := inStrides[qDim[j]];
+              Inc(j);
+            end;
+        end;
+      end;
+    end;
+  end;
+  Assert(st <= MaxInt, 'QNNReduceVec: reduced run stride exceeds 2^31-1');
+
+  if divideByCount then invCount := 1.0 / reduceCount;
+
+  setLength(oIdx, outNdim);
+  for i := 0 to outNdim-1 do oIdx[i] := 0;
+
+  base := 0;
+  for oLin := 0 to totalOut-1 do begin
+    if useSingleCall then
+      acc := reduceCbVec(runN, src + base, st)
+    else begin
+      // fold each other-reduced-axis combo's strided fiber, combine pairwise
+      for j := 0 to na-2 do qIdx[j] := 0;
+      off := 0;
+      acc := reduceCbVec(fiberN, src + base, st);
+      for combo := 1 to nCombos-1 do begin
+        j := na-2;
+        while (j >= 0) and (qIdx[j] + 1 >= qSz[j]) do begin
+          Dec(off, (qSz[j]-1) * qSt[j]);
+          qIdx[j] := 0;
+          Dec(j);
+        end;
+        Inc(qIdx[j]);
+        Inc(off, qSt[j]);
+        acc := reduceCbBin(acc, reduceCbVec(fiberN, src + base + off, st));
+      end;
+    end;
+
+    if divideByCount then acc := acc * invCount;
+    dst[oLin] := acc;
+
+    // advance kept-dims odometer (incremental base, no div/mod)
+    lvl := outNdim-1;
+    while (lvl >= 0) and (oIdx[lvl] + 1 >= outShape[lvl]) do begin
+      Dec(base, (outShape[lvl]-1) * inStrides[dimMapping[lvl]]);
+      oIdx[lvl] := 0;
+      Dec(lvl);
+    end;
+    if lvl >= 0 then begin
+      Inc(oIdx[lvl]);
+      Inc(base, inStrides[dimMapping[lvl]]);
+    end;
+  end;
+end;
+
+// [NEW:QNNBroadcastCombine] elementwise binary-callback with numpy/torch broadcasting
+// Broadcasted element-wise binary-callback op (numpy/torch broadcasting).
+// dst[i] = cb(src_a[i], ref_b[i]) where src/ref are right-aligned; any size-1
+// dim is stretched (broadcast) to match the other operand, numpy rules.
+class procedure TQNNSingleOPS.QNNBroadcastCombine(const dst, src, ref: PSingle;
+  const srcShape, refShape: TArray<int64>; const cb: TReduceFunc;
+  out outShape: TArray<int64>);
+var
+  nd, i, lvl, oLin, totalOut, srcOff, refOff: int64;
+  sPad, rPad, srcStrides, refStrides, oIdx: TArray<int64>;
+begin
+  nd := length(srcShape);
+  if length(refShape) > nd then nd := length(refShape);
+
+  if nd = 0 then begin
+    // both scalars
+    outShape := nil;
+    dst[0] := cb(src^, ref^);
+    exit;
+  end;
+
+  // right-align both shapes onto rank nd, padding leading dims with 1
+  setLength(sPad, nd);
+  setLength(rPad, nd);
+  for i := 0 to nd-1 do begin
+    sPad[i] := 1;
+    rPad[i] := 1;
+  end;
+  for i := 0 to length(srcShape)-1 do
+    sPad[nd - length(srcShape) + i] := srcShape[i];
+  for i := 0 to length(refShape)-1 do
+    rPad[nd - length(refShape) + i] := refShape[i];
+
+  // validate compatibility and build outShape
+  setLength(outShape, nd);
+  for i := 0 to nd-1 do begin
+    if (sPad[i] = rPad[i]) or (sPad[i] = 1) or (rPad[i] = 1) then begin
+      outShape[i] := sPad[i];
+      if rPad[i] > outShape[i] then outShape[i] := rPad[i];
+    end
+    else begin
+      Assert(False, Format('QNNBroadcastCombine: dim %d incompatible (%d vs %d)', [i, sPad[i], rPad[i]]));
+      outShape[i] := sPad[i];
+    end;
+  end;
+
+  totalOut := product(outShape);
+  if totalOut = 0 then exit;
+
+  // strides over the padded shapes; zero the strides of broadcast (size-1) dims
+  srcStrides := getStrides(sPad);
+  refStrides := getStrides(rPad);
+  for i := 0 to nd-1 do begin
+    if sPad[i] = 1 then srcStrides[i] := 0;
+    if rPad[i] = 1 then refStrides[i] := 0;
+  end;
+
+  // walk the output in row-major order maintaining both cursors incrementally
+  setLength(oIdx, nd);
+  for i := 0 to nd-1 do oIdx[i] := 0;
+  srcOff := 0;
+  refOff := 0;
+  for oLin := 0 to totalOut-1 do begin
+    dst[oLin] := cb(src[srcOff], ref[refOff]);
+
+    // advance output odometer (incremental cursors, no div/mod)
+    lvl := nd-1;
+    while (lvl >= 0) and (oIdx[lvl] + 1 >= outShape[lvl]) do begin
+      Dec(srcOff, (outShape[lvl]-1) * srcStrides[lvl]);
+      Dec(refOff, (outShape[lvl]-1) * refStrides[lvl]);
+      oIdx[lvl] := 0;
+      Dec(lvl);
+    end;
+    if lvl >= 0 then begin
+      Inc(oIdx[lvl]);
+      Inc(srcOff, srcStrides[lvl]);
+      Inc(refOff, refStrides[lvl]);
+    end;
+  end;
+end;
+// [NEW:QNNBroadcastCombine]
+// [NEW:QNNBroadcastCombineVec] vector-callback overload: same numpy/torch broadcast,
+// but instead of one cb() call per element it issues one cbVec() call per run.
+// Trailing dims where NEITHER operand broadcasts merge into a single stride(1,1) call;
+// if the fast dim itself is broadcast for one operand, a single cbVec(.., s1, s2) call
+// still covers the whole dim (stride 0 = operand is constant across the run). s1/s2 are 0 or 1.
+class procedure TQNNSingleOPS.QNNBroadcastCombine(const dst, src, ref: PSingle;
+  const srcShape, refShape: TArray<int64>; const cbVec: TCombineVecCb;
+  out outShape: TArray<int64>);
+var
+  nd, i, k, lvl, nbc, blockDims, runLen, outerStart, outer, fast, oLin, totalOut, s1, s2, srcOff, refOff: int64;
+  sPad, rPad, srcStrides, refStrides, oIdx: TArray<int64>;
+begin
+  nd := length(srcShape);
+  if length(refShape) > nd then nd := length(refShape);
+
+  if nd = 0 then begin
+    // both scalars
+    outShape := nil;
+    cbVec(1, dst, src, ref, 1, 1);
+    exit;
+  end;
+
+  // right-align both shapes onto rank nd, padding leading dims with 1
+  setLength(sPad, nd);
+  setLength(rPad, nd);
+  for i := 0 to nd-1 do begin
+    sPad[i] := 1;
+    rPad[i] := 1;
+  end;
+  for i := 0 to length(srcShape)-1 do
+    sPad[nd - length(srcShape) + i] := srcShape[i];
+  for i := 0 to length(refShape)-1 do
+    rPad[nd - length(refShape) + i] := refShape[i];
+
+  // validate compatibility and build outShape
+  setLength(outShape, nd);
+  for i := 0 to nd-1 do begin
+    if (sPad[i] = rPad[i]) or (sPad[i] = 1) or (rPad[i] = 1) then begin
+      outShape[i] := sPad[i];
+      if rPad[i] > outShape[i] then outShape[i] := rPad[i];
+    end
+    else begin
+      Assert(False, Format('QNNBroadcastCombine: dim %d incompatible (%d vs %d)', [i, sPad[i], rPad[i]]));
+      outShape[i] := sPad[i];
+    end;
+  end;
+
+  totalOut := product(outShape);
+  if totalOut = 0 then exit;
+
+  // strides over the padded shapes; zero the strides of broadcast (size-1) dims
+  srcStrides := getStrides(sPad);
+  refStrides := getStrides(rPad);
+  for i := 0 to nd-1 do begin
+    if sPad[i] = 1 then srcStrides[i] := 0;
+    if rPad[i] = 1 then refStrides[i] := 0;
+  end;
+
+  // trailing dims where neither operand broadcasts form one contiguous (1,1) call
+  fast := nd-1;
+  nbc  := 0;
+  for i := fast downto 0 do begin
+    if (sPad[i] = 1) or (rPad[i] = 1) then break;
+    Inc(nbc);
+  end;
+
+  if nbc > 0 then begin
+    blockDims := nbc;
+    s1 := 1;
+    s2 := 1;
+  end
+  else begin
+    blockDims := 1;                        // fast dim is broadcast for >=1 operand
+    s1 := 0; if sPad[fast] > 1 then s1 := 1;
+    s2 := 0; if rPad[fast] > 1 then s2 := 1;
+  end;
+
+  runLen    := 1;                          // elements handled per cbVec call
+  for i := nd-blockDims to nd-1 do runLen := runLen * outShape[i];
+
+  outerStart := nd - blockDims;            // odometer runs over these leading dims
+  outer      := 1;
+  for i := 0 to outerStart-1 do outer := outer * outShape[i];
+
+  setLength(oIdx, outerStart);
+  for i := 0 to outerStart-1 do oIdx[i] := 0;
+  srcOff := 0;
+  refOff := 0;
+  oLin   := 0;
+  for k := 0 to outer-1 do begin
+    cbVec(runLen, @dst[oLin], @src[srcOff], @ref[refOff], s1, s2);
+
+    // advance outer-dims odometer (incremental cursors, no div/mod)
+    lvl := outerStart-1;
+    while (lvl >= 0) and (oIdx[lvl] + 1 >= outShape[lvl]) do begin
+      Dec(srcOff, (outShape[lvl]-1) * srcStrides[lvl]);
+      Dec(refOff, (outShape[lvl]-1) * refStrides[lvl]);
+      oIdx[lvl] := 0;
+      Dec(lvl);
+    end;
+    if lvl >= 0 then begin
+      Inc(oIdx[lvl]);
+      Inc(srcOff, srcStrides[lvl]);
+      Inc(refOff, refStrides[lvl]);
+    end;
+    Inc(oLin, runLen);
+  end;
+end;
+// [NEW:QNNBroadcastCombineVec]
+
 
 //var
 //  i, newLvl, dst_stride: int64;
@@ -3667,7 +4339,7 @@ begin
   ama := QNNMaxAbs(N, src);
   mean := QNNMean(N, src);
   stdDev := sqrt(QNNVariance(N, src, mean));
-  writeln('[', N,']', 'Min :', mi:1:DECIMALS,'@',argmi, ', Max:', ma:1:DECIMALS,'@',argma,', minAbs:', ami:1:DECIMALS,', maxAbs:', ama:1:DECIMALS,', mean:'
+   writeln('[', N,']', 'Min :', mi:1:DECIMALS,'@',argmi, ', Max:', ma:1:DECIMALS,'@',argma,', minAbs:', ami:1:DECIMALS,', maxAbs:', ama:1:DECIMALS,', mean:'
   , mean:1:DECIMALS, ', stddev:', stddev:1:DECIMALS);
 end;
 
@@ -3737,12 +4409,12 @@ begin
 end;
 }
 
-procedure compareArray(const a, b: TArray<Integer>);
+procedure compareArray(const a, b: TArray<Integer>; const Epsilon:single);
 var i:longint;
 begin
   assert(high(a)=high(b),'unmatched array length');
   for i:=0 to high(a)-1 do
-    assert(a[i]=b[i],' Unmatched element at '+intToStr(i))
+    assert(abs(a[i]-b[i])<=Epsilon,' Unmatched element at '+intToStr(i))
 end;
 
 procedure compareArray(const a, b: PInteger; const N:longint);
@@ -3752,11 +4424,11 @@ begin
     assert(a[i]=b[i],' Unmatched element at '+intToStr(i))
 end;
 
-procedure compareArray(const a, b: PSingle; const N: longint);
+procedure compareArray(const a, b: PSingle; const N: longint; const Epsilon:single);
 var i:longint;
 begin
   for i:=0 to N-1 do
-    assert(a[i]=b[i],' Unmatched element at '+intToStr(i))
+    assert(abs(a[i]-b[i])<=Epsilon,' Unmatched element at '+intToStr(i))
 end;
 
 
@@ -3903,9 +4575,9 @@ var
 var i:IntPtr;
 
 const
-  M = 512;
-  N = 512;
-  K = 512;
+  M = 1024;
+  N = 1024;
+  K = 1024;
 
 
 initialization
@@ -3965,18 +4637,18 @@ initialization
         TQNNSingleOPS.cblas_sscal := cblas_sscal  ;
         TQNNSingleOPS.isUsingBlas := true;
   {$else}
-  hBLASLib := LoadLibrary(blaslib);
-  if hBLASLib=0 then
-    hBLASLib:=LoadLibrary('lib'+blaslib);
-  if hBLASLib=0 then
-    hBLASLib:=LoadLibrary('lib'+blaslib+'.0');
-
-  if hBLASLib=0 then
-    hBLASLib:=LoadLibrary(blaslib64);
-  if hBLASLib=0 then
-    hBLASLib:=LoadLibrary('lib'+blaslib64);
-  if hBLASLib=0 then
-    hBLASLib:=LoadLibrary('lib'+blaslib64+'.0');
+  //hBLASLib := LoadLibrary(blaslib);
+  //if hBLASLib=0 then
+  //  hBLASLib:=LoadLibrary('lib'+blaslib);
+  //if hBLASLib=0 then
+  //  hBLASLib:=LoadLibrary('lib'+blaslib+'.0');
+  //
+  //if hBLASLib=0 then
+  //  hBLASLib:=LoadLibrary(blaslib64);
+  //if hBLASLib=0 then
+  //  hBLASLib:=LoadLibrary('lib'+blaslib64);
+  //if hBLASLib=0 then
+  //  hBLASLib:=LoadLibrary('lib'+blaslib64+'.0');
 
   if (hBLASLib>0) then begin
     TQNNSingleOPS.cblas_sgemm   := getProcAddress(hBLASLib, 'cblas_sgemm');
@@ -3991,12 +4663,13 @@ initialization
     TQNNSingleOPS.openblas_get_config         :=  getProcAddress(hBLASLib, 'openblas_get_config');
     TQNNSingleOPS.openblas_get_corename       :=  getProcAddress(hBLASLib, 'openblas_get_corename');
   end;
-  TQNNSingleOPS.isUsingBlas := true;//hBlaslib<>0;
+  TQNNSingleOPS.isUsingBlas := true;//true;//hBlaslib<>0;
   if isConsole and (hBLASLIB<>0) then
     writeln('Using [', ansistring(TQNNSingleOPS.openblas_get_config()), ']');
   {$endif}
   randomize;
-(*
+
+  {$ifdef TEST_GEM_CPU}
  //for GEMM tesing
   randomize;
   A := TMemoryBlock.create([M,K], 'A');
@@ -4008,10 +4681,10 @@ initialization
   O := TMemoryBlock.create([M, N], 'O');
   randArray(O.count, O);
 
-  gemm_nt_8x8(A, B, O, 10, 10, 100, 100, 100);
+  //gemm_nt_8x8(A, B, O, 10, 10, 100, 100, 100);
 
   O2 := TMemoryBlock.create([M, N], 'O2');
-  randArray(O2.count, O2);
+  //randArray(O2.count, O2);
   TQNNSingleOPS.QNNCopy(O2, O, O.count);
 
   //set_prn(printf);
@@ -4021,24 +4694,37 @@ initialization
   //  //vk.sgemm(false, false, M, N, KK, 1.5, A, KK, B, N, 0, O2, N) ;
   //                                                              gemm_nn(M, N, K, 1.5, A, K, B, N, 0, O2, N) ;
   //
-  // //cpp_sgemm(               CblasNoTrans, CblasNoTrans, M, N, KK, 1.5, Q, KK, K, N, 0, O2, N, 0 , M) ;
+  //                 test_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, M, N, KK, 1.5, Q, KK, K, N, 0, O2, N, 0 , M) ;
   //end;
   for i:=0 to 10 do begin
-    TQNNSingleOPS.cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, M, N, K, 1, A, K, B, K, 1, O , N) ;
-                                                               gemm_nt(M, N, K, 1, A, K, B, K, 1, O2, N) ;
+    TQNNSingleOPS.cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, M, N, K, 1.5, A, K, B, N, 2, O , N) ;
+                    test_gemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, M, N, K, 1.5, A, K, B, N, 2, O2, N) ;
+
   end;
-  //cpp_sgemm(                CblasNoTrans, CblasTrans, M, N, KK, 1.5, Q, KK, K, KK, 0, O2, N, 0, M) ;
-
-  //cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans, M, N, KK, 1.5, Q, M, K, N, 0, O, N) ;
-  //     qgemm(CblasRowMajor, CblasTrans, CblasNoTrans, M, N, KK, 1.5, Q, M, K, N, 0, O2, N) ;
-
-  //O .print();
-  //O2.print();
-
   O.printCompare(O2, false);
-
   readln;
-*)
+
+  randArray(O.count, O);
+  TQNNSingleOPS.QNNCopy(O2, O, O.count);
+  for i:=0 to 10 do begin
+    TQNNSingleOPS.cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, M, N, K, 1.5, A, K, B, K, 2, O , N) ;
+                    test_gemm(CblasRowMajor, CblasNoTrans, CblasTrans, M, N, K, 1.5, A, K, B, K, 2, O2, N) ;
+
+  end;
+  O.printCompare(O2, false);
+  readln;
+
+  randArray(O.count, O);
+  TQNNSingleOPS.QNNCopy(O2, O, O.count);
+  for i:=0 to 10 do begin
+    TQNNSingleOPS.cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans, M, N, K, 1.5, A, M, B, N, 2, O , N) ;
+                    test_gemm(CblasRowMajor, CblasTrans, CblasNoTrans, M, N, K, 1.5, A, M, B, N, 2, O2, N) ;
+
+  end;
+  O.printCompare(O2, false);
+  readln;
+  {$endif}
+
 (*
   randomize;
   //A := [-8.0, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7];//TMemoryBlock.Create([16], 'A');

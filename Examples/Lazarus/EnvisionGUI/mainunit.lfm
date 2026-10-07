@@ -21,14 +21,14 @@ object MainForm: TMainForm
   OnShow = FormShow
   object Panel1: TPanel
     Left = 0
-    Height = 582
-    Top = 34
+    Height = 584
+    Top = 32
     Width = 48
     Align = alLeft
     BevelColor = 6710886
     BevelOuter = bvNone
     BevelWidth = 2
-    ClientHeight = 582
+    ClientHeight = 584
     ClientWidth = 48
     ParentBackground = False
     TabOrder = 0
@@ -217,12 +217,12 @@ object MainForm: TMainForm
   end
   object Panel4: TPanel
     Left = 0
-    Height = 34
+    Height = 32
     Top = 0
     Width = 968
     Align = alTop
     BevelOuter = bvSpace
-    ClientHeight = 34
+    ClientHeight = 32
     ClientWidth = 968
     ParentBackground = False
     TabOrder = 1
@@ -299,19 +299,19 @@ object MainForm: TMainForm
   end
   object Panel2: TPanel
     Left = 48
-    Height = 582
-    Top = 34
+    Height = 584
+    Top = 32
     Width = 920
     Align = alClient
     BevelOuter = bvNone
-    ClientHeight = 582
+    ClientHeight = 584
     ClientWidth = 920
     ParentBackground = False
     TabOrder = 2
     object Panel3: TPanel
       Left = 0
       Height = 200
-      Top = 382
+      Top = 384
       Width = 920
       Align = alBottom
       BevelOuter = bvNone
@@ -327,7 +327,6 @@ object MainForm: TMainForm
         Width = 82
         Anchors = [akTop, akRight]
         Caption = 'Generate'
-        Color = 3355443
         Flat = True
         Glyph.Data = {
           36240000424D3624000000000000360000002800000030000000300000000100
@@ -622,7 +621,6 @@ object MainForm: TMainForm
           FF00FFFFFF00FFFFFF00FFFFFF00FFFFFF00FFFFFF00FFFFFF00
         }
         Layout = blGlyphTop
-        Transparent = False
         OnClick = btnGenerateClick
       end
       object Label2: TLabel
@@ -852,30 +850,30 @@ object MainForm: TMainForm
       Cursor = crVSplit
       Left = 0
       Height = 5
-      Top = 377
+      Top = 379
       Width = 920
       Align = alBottom
       ResizeAnchor = akBottom
     end
     object Panel5: TPanel
       Left = 0
-      Height = 377
+      Height = 379
       Top = 0
       Width = 920
       Align = alClient
       BevelOuter = bvNone
-      ClientHeight = 377
+      ClientHeight = 379
       ClientWidth = 920
       ParentBackground = False
       TabOrder = 2
       object Panel6: TPanel
         Left = 0
-        Height = 377
+        Height = 379
         Top = 0
         Width = 920
         Align = alClient
         BevelOuter = bvNone
-        ClientHeight = 377
+        ClientHeight = 379
         ClientWidth = 920
         Color = 2236962
         ParentBackground = False
@@ -883,29 +881,30 @@ object MainForm: TMainForm
         TabOrder = 0
         object Image1: TImage
           Left = 0
-          Height = 377
+          Height = 379
           Top = 0
-          Width = 481
+          Width = 451
           Align = alClient
           Center = True
           Images = ImageList1
           Proportional = True
           Stretch = True
           OnDblClick = Image1DblClick
+          OnMouseMove = Image1MouseMove
         end
         object Splitter2: TSplitter
-          Left = 481
-          Height = 377
+          Left = 451
+          Height = 379
           Top = 0
           Width = 5
           Align = alRight
           ResizeAnchor = akRight
         end
         object Image2: TImage
-          Left = 486
-          Height = 377
+          Left = 456
+          Height = 379
           Top = 0
-          Width = 434
+          Width = 464
           Align = alRight
           Center = True
           Images = ImageList1
@@ -990,7 +989,7 @@ object MainForm: TMainForm
       end
       object mnuDL2: TMenuItem
         Caption = 'ZImage Turbo'
-        Visible = False
+        OnClick = mnuDL2Click
       end
       object Separator2: TMenuItem
         Caption = '-'
@@ -1007,5 +1006,12 @@ object MainForm: TMainForm
       Caption = 'About'
       OnClick = MenuItem2Click
     end
+  end
+  object Timer1: TTimer
+    Enabled = False
+    Interval = 333
+    OnTimer = Timer1Timer
+    Left = 8
+    Top = 224
   end
 end

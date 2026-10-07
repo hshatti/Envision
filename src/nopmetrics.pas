@@ -11,7 +11,7 @@ type
   SizeInt = IntPtr;
 {$endif}
   TMeasureOps = (
-    opAllocCPU, opIncFill, opFill, opCopy, opCopyStrided, opMaxNorm, opStdDevNorm, opRMSNorm, opBatchAddvs, opAddvs, opBatchMulvs, opGroupNorm, opBatchNorm,
+    opAllocCPU, opIncFill, opFill, opElementWise, opCopy, opCopyStrided, opMaxNorm, opStdDevNorm, opRMSNorm, opBatchAddvs, opAddvs, opBatchMulvs, opGroupNorm, opBatchNorm,
     opMulvs, opBatchSubvs, opSubvs, opBatchDivvs, opDivvs, opPow, opAxpy, opMulvv, opAddvv, opSubvv, opDivvv, opROPE, opROPE2,opROPE2D, opROPEText, opROPEOffset, opROPE2DOffset,
     opApplyROPE, opApplyROPE2, opApplyROPE3, opApplyROPEQK, opApplyROPE2D, opFmavv, opDot, opBatchFmavss, opFmavss, opFmavvs, opGemm, opIm2col, opCol2im,
     opTimeStepEmbedding, opTriangularFill, opMaskFill, opAdaLN,

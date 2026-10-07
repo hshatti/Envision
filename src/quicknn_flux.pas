@@ -237,7 +237,7 @@ end;
 
 function TQNNFlux.generate(const prompt: rawbytestring; var params: TGenerateParams; const progress_callback: TProgressCallback): TQNNImage;
 begin
-  result := generate(prompt, '', params, progress_callback)
+  result := generate(prompt, '', params, progress_callback);
 end;
 
 //type TSingleArray= array of single;

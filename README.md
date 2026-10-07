@@ -10,7 +10,7 @@
 > - Runs out‑of‑the‑box with no external dependencies.
 > - uses lazy loading and Disk Memory Mapping ```mmap()``` significantly saving memory for systems with low RAM.
 > - Hand written Intel x86_64 assembly code to squeeze out the best CPU performance possible.
-> - **[Windows/Linux]** if OpenBLAS is present on it will automatically bind to it and gain ~20× speed‑up.
+> - **[Windows/Linux]** if OpenBLAS is present on it will automatically bind to it and gain ~3× speed‑up.
 > - **[MacOS]** will automatically utilise the [Accelerate Framework](https://developer.apple.com/accelerate/).
 > - Image edit support for FLUX2 ( reference image to image, multi ref images to image ) 
 
@@ -86,7 +86,7 @@ OpenBLAS is not required on **MacOS** _(Intel or Silicon)_ since it will automat
 
 ## Work in progress
 
-*(always in in pure pascal)*
+*(always in pure pascal)*
 
 - Vulkan support 
 - CUDA support

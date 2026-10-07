@@ -217,7 +217,7 @@ var
   procedure QNNMatMulNT(const C, A, B: TMemoryBlock; const M, K, N:integer);
   procedure QNNMatMulTN(const C, A, B: TMemoryBlock; const M, K, N:integer);
 
-  procedure QNNMatTranspose(const dst, src: TMemoryBlock; const srcRows, srcCols: longint);
+  procedure QNNMatTranspose(const dst, src: TMemoryBlock; const srcRows, srcCols: longint; srcStride:longint=0; dstStride:longint=0);
   procedure QNNLinear(const dst, x, W, B:TMemoryBlock; const seqLen, inDIM, outDIM: integer);
   procedure QNNLinearNoBias(const dst, x, W:TMemoryBlock; const seqLen, inDIM, outDIM: integer);
   procedure QNNLinearNoBias_BF16(const dst, x:TMemoryBlock; const W: PBF16; const seqLen, inDIM, outDIM: integer);
@@ -290,7 +290,16 @@ var
   procedure QNNUnpatchify(const dst, src: TMemoryBlock; const batch, channels, H, W, patch_size: longint);
   procedure QNNPermut(var dst:TMemoryBlock; const src:TMemoryBlock; const axis:TArray<byte>);   overload;
   function QNNPermut(const src:TMemoryBlock; const axis:TArray<byte>):TMemoryBlock;             overload;
-  procedure QNNCopy(const dst, src:TMemoryBlock; const N:integer);
+  procedure QNNReduce(var dst:TMemoryBlock; const src: TMemoryBlock; const reduceAxes: TArray<int64>; const reduceCallback: TReduceFunc; const divideByCount: boolean = false; const keepDims: boolean = false); overload;
+  procedure QNNReduce(var dst:TMemoryBlock; const src: TMemoryBlock; const reduceAxes: TArray<int64>; const reduceOp: TReduceOp; const divideByCount: boolean = false; const keepDims: boolean = false); overload;
+  procedure QNNReduce(var dst:TMemoryBlock; const src: TMemoryBlock; const reduceAxes: TArray<int64>; const reduceCallbackVec: TReduceVecCb; const reduceCallbackBinary: TReduceFunc; const divideByCount: boolean = false ; const keepDims: boolean = false); overload;   // [NEW:QNNReduceVec]
+  function QNNReduce(const src: TMemoryBlock; const reduceAxes: TArray<int64>; const reduceOp: TReduceOp; const divideByCount: boolean = false; const keepDims: boolean = false):TMemoryBlock; overload;
+  procedure QNNBElementWise(var dst:TMemoryBlock; const src, ref: TMemoryBlock; const OpCallback: TReduceFunc); overload;   // [NEW:QNNBroadcastCombine] elementwise binary-callback with numpy/torch broadcasting
+  procedure QNNBElementWise(var dst:TMemoryBlock; const src, ref: TMemoryBlock; const OpCallbackVec: TCombineVecCb); overload;    // [NEW:QNNBroadcastCombineVec] vector-callback overload
+  function QNNBElementWise(const src, ref: TMemoryBlock; const callback: TReduceFunc):TMemoryBlock; overload;   // [NEW:QNNBroadcastCombine] elementwise binary-callback with numpy/torch broadcasting
+  function QNNBElementWise(const src, ref: TMemoryBlock; const callbackVec: TCombineVecCb):TMemoryBlock; overload;    // [NEW:QNNBroadcastCombineVec] vector-callback overload
+
+  procedure QNNCopy(const dst, src:TMemoryBlock; N:integer = -1);
   procedure QNNCopyStrided(const dst:TMemoryBlock; const dstStride:integer; const src:TMemoryBlock; const srcStride: integer; const N:integer);
   procedure QNNFill(const dst:TMemoryBlock; const val:QNNFloat; const N:integer; const stride:integer=1);
   procedure QNNBroadcast(const dst:pointer; const src; const srcSize, N:integer; const stride:integer=1);
@@ -344,6 +353,7 @@ procedure compareArray(const a, b: PSingle; const N:longint);  overload;
 
 procedure qgemm(Order:CBLAS_ORDER; TransA:CBLAS_TRANSPOSE; TransB:CBLAS_TRANSPOSE; M:blasint; N:blasint; K:blasint; alpha:single; A:PQNNFloat; lda:blasint; B:PQNNFloat; ldb:blasint; beta:single; C:PQNNFloat; ldc:blasint); WINAPI;
 *)
+procedure setGemmDebug(const val:boolean);
 
 implementation
 uses quicknncpu;
@@ -386,6 +396,11 @@ begin
   result := TQNNSingleOPS.isUsingBlas
 end;
 
+procedure setGemmDebug(const val: boolean);
+begin
+  DEBUG_GEMM_DIM := val;
+end;
+
 procedure OP_IMPL_FAIL();inline;
 begin
   assert(false, OP_NOT_IMPL)
@@ -399,6 +414,7 @@ begin
   {$if defined(USE_PROFILING)}
   metrics.start(opGemm);
   {$endif}
+
   case C.DataType of
     dtF32 :
       TQNNSingleOPS.cblas_gemm(Order, TransA, TransB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
@@ -876,7 +892,8 @@ begin
   {$endif}
 end;
 
-procedure QNNMatTranspose(const dst, src: TMemoryBlock; const srcRows, srcCols: longint);
+procedure QNNMatTranspose(const dst, src: TMemoryBlock; const srcRows,
+  srcCols: longint; srcStride: longint; dstStride: longint);
 begin
   {$if defined(USE_PROFILING)}
   metrics.start(opOther);
@@ -885,7 +902,7 @@ begin
   assert(dst.offset + srcRows*srcCols<= dst.size, 'QNNTranspose : dst dimensions out of bounds.');
   case dst.DataType of
     dtF32 :
-      TQNNSingleOPS.QNNMatTranspose(dst, src, srcRows, srcCols);
+      TQNNSingleOPS.QNNMatTranspose(dst, src, srcRows, srcCols, srcStride, dstStride);
   else
     OP_IMPL_FAIL()
   end;
@@ -1775,11 +1792,290 @@ begin
   QNNPermut(result, src, axis)
 end;
 
-procedure QNNCopy(const dst, src: TMemoryBlock; const N: integer);
+procedure QNNReduce(var dst: TMemoryBlock; const src: TMemoryBlock;
+  const reduceAxes: TArray<int64>; const reduceCallback: TReduceFunc;
+  const divideByCount: boolean; const keepDims: boolean);
+var
+  asize, i, d:int64;
+  outShape: TArray<int64>;
+  toReduce: TArray<boolean>;
+begin
+  {$if defined(USE_PROFILING)}
+  metrics.start(opReduce);
+  {$endif}
+
+  aSize:=1;
+  outShape := copy(src.shape);
+
+  setLength(toReduce, length(src.Shape));
+  for i := 0 to high(reduceAxes) do begin
+    d := reduceAxes[i];
+    Assert((d >= 0) and (d < length(src.shape)), Format('QNNReduce: axis %d out of range [0..%d]', [d, length(src.shape)-1]));
+    Assert(not toReduce[d], Format('QNNReduce: duplicate axis %d', [d]));
+    toReduce[d] := True;
+  end;
+
+
+  for i:=0 to high(src.shape) do
+    if toReduce[i] then outShape[i]:=1;
+  assert(dst.size>=product(outShape), 'QNNReduce: insufficient destination size!');
+
+  case dst.DataType of
+    dtF32 : begin
+      TQNNSingleOPS.QNNReduce(dst, src, src.shape, reduceAxes, reduceCallback, divideByCount, outShape, keepDims);
+      dst.shape := outShape;
+    end
+  else
+    OP_IMPL_FAIL()
+  end;
+  {$if defined(USE_PROFILING)}
+  metrics.finish(opReduce);
+  {$endif}
+end;
+
+procedure QNNReduce(var dst: TMemoryBlock; const src: TMemoryBlock;
+  const reduceAxes: TArray<int64>; const reduceOp: TReduceOp;
+  const divideByCount: boolean; const keepDims: boolean);
+var
+  asize, i, d:int64;
+  outShape: TArray<int64>;
+  toReduce: TArray<boolean>;
+begin
+  {$if defined(USE_PROFILING)}
+  metrics.start(opReduce);
+  {$endif}
+
+  aSize:=1;
+  outShape := copy(src.shape);
+
+  setLength(toReduce, length(src.Shape));
+  for i := 0 to high(reduceAxes) do begin
+    d := reduceAxes[i];
+    Assert((d >= 0) and (d < length(src.shape)), Format('QNNReduce: axis %d out of range [0..%d]', [d, length(src.shape)-1]));
+    Assert(not toReduce[d], Format('QNNReduce: duplicate axis %d', [d]));
+    toReduce[d] := True;
+  end;
+
+
+  for i:=0 to high(src.shape) do
+    if toReduce[i] then outShape[i]:=1;
+  assert(dst.size>=product(outShape), 'QNNReduce: insufficient destination size!');
+
+  case dst.DataType of
+    dtF32 :
+      TQNNSingleOPS.QNNReduce(dst, src, src.shape, reduceAxes, reduceOp, divideByCount, dst.shape, keepDims);
+  else
+    OP_IMPL_FAIL()
+  end;
+  {$if defined(USE_PROFILING)}
+  metrics.finish(opReduce);
+  {$endif}
+end;
+
+procedure QNNReduce(var dst: TMemoryBlock; const src: TMemoryBlock;
+  const reduceAxes: TArray<int64>; const reduceCallbackVec: TReduceVecCb;
+  const reduceCallbackBinary: TReduceFunc; const divideByCount: boolean;
+  const keepDims: boolean);
+var
+  asize, i, d:int64;
+  outShape: TArray<int64>;
+  toReduce: TArray<boolean>;
+begin
+  {$if defined(USE_PROFILING)}
+  metrics.start(opReduce);
+  {$endif}
+
+  aSize:=1;
+  outShape := copy(src.shape);
+
+  setLength(toReduce, length(src.Shape));
+  for i := 0 to high(reduceAxes) do begin
+    d := reduceAxes[i];
+    Assert((d >= 0) and (d < length(src.shape)), Format('QNNReduce: axis %d out of range [0..%d]', [d, length(src.shape)-1]));
+    Assert(not toReduce[d], Format('QNNReduce: duplicate axis %d', [d]));
+    toReduce[d] := True;
+  end;
+
+
+  for i:=0 to high(src.shape) do
+    if toReduce[i] then outShape[i]:=1;
+  assert(dst.size>=product(outShape), 'QNNReduce: insufficient destination size!');
+
+  case dst.DataType of
+    dtF32 : begin
+      TQNNSingleOPS.QNNReduce(dst, src, src.shape, reduceAxes, reduceCallbackVec, reduceCallbackBinary, divideByCount, dst.shape, keepDims);
+    end;
+  else
+    OP_IMPL_FAIL()
+  end;
+  {$if defined(USE_PROFILING)}
+  metrics.finish(opReduce);
+  {$endif}
+end;
+
+function QNNReduce(const src: TMemoryBlock; const reduceAxes: TArray<int64>;
+  const reduceOp: TReduceOp; const divideByCount: boolean;
+  const keepDims: boolean): TMemoryBlock;
+var
+  asize, i, d:int64;
+  outShape: TArray<int64>;
+  toReduce: TArray<boolean>;
+begin
+  {$if defined(USE_PROFILING)}
+  metrics.start(opReduce);
+  {$endif}
+
+  aSize:=1;
+  outShape := copy(src.shape);
+
+  setLength(toReduce, length(src.Shape));
+  for i := 0 to high(reduceAxes) do begin
+    d := reduceAxes[i];
+    Assert((d >= 0) and (d < length(src.shape)), Format('QNNReduce: axis %d out of range [0..%d]', [d, length(src.shape)-1]));
+    Assert(not toReduce[d], Format('QNNReduce: duplicate axis %d', [d]));
+    toReduce[d] := True;
+  end;
+
+
+  for i:=0 to high(src.shape) do
+    if toReduce[i] then outShape[i]:=1;
+
+  case src.DataType of
+    dtF32 : begin
+      result := TMemoryBlock.Create(outshape, '');
+      TQNNSingleOPS.QNNReduce(result, src, src.shape, reduceAxes, reduceOp, divideByCount, result.shape, keepDims);
+    end;
+  else
+    OP_IMPL_FAIL()
+  end;
+
+  // build dimMapping (output dim -> input dim) and outShape
+
+  {$if defined(USE_PROFILING)}
+  metrics.finish(opReduce);
+  {$endif}
+end;
+
+procedure QNNBElementWise(var dst: TMemoryBlock; const src, ref: TMemoryBlock;
+  const OpCallback: TReduceFunc);
+var
+  nd, i : int64;
+  outShape, sPad, rPad:TArray<int64>;
+begin
+  {$if defined(USE_PROFILING)}
+  metrics.start(opElementWise);
+  {$endif}
+
+  nd := length(src.Shape);
+  if length(ref.Shape) > nd then nd := length(ref.Shape);
+
+  // right-align both shapes onto rank nd, padding leading dims with 1
+  setLength(sPad, nd);
+  setLength(rPad, nd);
+  for i := 0 to nd-1 do begin
+    sPad[i] := 1;
+    rPad[i] := 1;
+  end;
+  for i := 0 to length(src.Shape)-1 do
+    sPad[nd - length(src.Shape) + i] := src.Shape[i];
+  for i := 0 to length(ref.Shape)-1 do
+    rPad[nd - length(ref.Shape) + i] := ref.Shape[i];
+
+  // validate compatibility and build outShape
+  setLength(outShape, nd);
+  for i := 0 to nd-1 do begin
+    if (sPad[i] = rPad[i]) or (sPad[i] = 1) or (rPad[i] = 1) then begin
+      outShape[i] := sPad[i];
+      if rPad[i] > outShape[i] then outShape[i] := rPad[i];
+    end
+    else begin
+      Assert(False, Format('QNNBroadcastCombine: dim %d incompatible (%d vs %d)', [i, sPad[i], rPad[i]]));
+      outShape[i] := sPad[i];
+    end;
+  end;
+
+  case src.DataType of
+  dtF32 :
+    begin
+      if not dst.isAssigned() then
+        dst := TMemoryBlock.Create(outShape, '');
+      TQNNSingleOPS.QNNBroadcastCombine(dst, src, ref, src.shape, ref.shape, OpCallback, outShape);
+    end;
+  end;
+  {$if defined(USE_PROFILING)}
+  metrics.finish(opElementWise);
+  {$endif}
+end;
+
+procedure QNNBElementWise(var dst: TMemoryBlock; const src, ref: TMemoryBlock;
+  const OpCallbackVec: TCombineVecCb);
+var
+  nd, i : int64;
+  outShape, sPad, rPad:TArray<int64>;
+begin
+  {$if defined(USE_PROFILING)}
+  metrics.start(opElementWise);
+  {$endif}
+
+  nd := length(src.Shape);
+  if length(ref.Shape) > nd then nd := length(ref.Shape);
+
+  // right-align both shapes onto rank nd, padding leading dims with 1
+  setLength(sPad, nd);
+  setLength(rPad, nd);
+  for i := 0 to nd-1 do begin
+    sPad[i] := 1;
+    rPad[i] := 1;
+  end;
+  for i := 0 to length(src.Shape)-1 do
+    sPad[nd - length(src.Shape) + i] := src.Shape[i];
+  for i := 0 to length(ref.Shape)-1 do
+    rPad[nd - length(ref.Shape) + i] := ref.Shape[i];
+
+  // validate compatibility and build outShape
+  setLength(outShape, nd);
+  for i := 0 to nd-1 do begin
+    if (sPad[i] = rPad[i]) or (sPad[i] = 1) or (rPad[i] = 1) then begin
+      outShape[i] := sPad[i];
+      if rPad[i] > outShape[i] then outShape[i] := rPad[i];
+    end
+    else begin
+      Assert(False, Format('QNNBroadcastCombine: dim %d incompatible (%d vs %d)', [i, sPad[i], rPad[i]]));
+      outShape[i] := sPad[i];
+    end;
+  end;
+
+  case src.DataType of
+  dtF32 :
+    begin
+      if not dst.isAssigned() then
+        dst := TMemoryBlock.Create(outShape, '');
+      TQNNSingleOPS.QNNBroadcastCombine(dst, src, ref, src.shape, ref.shape, OpCallbackVec, outShape);
+    end;
+  end;
+  {$if defined(USE_PROFILING)}
+  metrics.finish(opElementWise);
+  {$endif}
+end;
+
+function QNNBElementWise(const src, ref: TMemoryBlock;
+  const callback: TReduceFunc): TMemoryBlock;
+begin
+
+end;
+
+function QNNBElementWise(const src, ref: TMemoryBlock;
+  const callbackVec: TCombineVecCb): TMemoryBlock;
+begin
+
+end;
+
+procedure QNNCopy(const dst, src: TMemoryBlock; N: integer);
 begin
   {$if defined(USE_PROFILING)}
   metrics.start(opCopy);
   {$endif}
+  if N<0 then N := min(dst.size, src.size);
   assert(src.offset+N <= src.Size, 'ERROR [QNNCopy] : N is out of source tesnor bounds');
   assert(dst.offset+N <= dst.size, 'ERROR [QNNCopy] : N is out of destination tesnor bounds');
   case dst.DataType of

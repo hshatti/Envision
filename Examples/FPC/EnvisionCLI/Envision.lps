@@ -8,8 +8,7 @@
       <Unit>
         <Filename Value="Envision.lpr"/>
         <IsPartOfProject Value="True"/>
-        <TopLine Value="91"/>
-        <CursorPos X="95" Y="127"/>
+        <CursorPos X="12" Y="12"/>
         <UsageCount Value="223"/>
         <Loaded Value="True"/>
       </Unit>
@@ -134,18 +133,20 @@
       <Unit>
         <Filename Value="..\..\..\src\ops_avx2.inc"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="15"/>
-        <TopLine Value="519"/>
-        <CursorPos X="21" Y="573"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="14"/>
+        <TopLine Value="2245"/>
+        <CursorPos X="26" Y="2057"/>
         <UsageCount Value="210"/>
         <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\ops_avx512_bf16.inc"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="16"/>
-        <CursorPos Y="17"/>
-        <UsageCount Value="40"/>
+        <EditorIndex Value="15"/>
+        <CursorPos X="16" Y="14"/>
+        <UsageCount Value="214"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -153,7 +154,7 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="491"/>
         <CursorPos X="69" Y="534"/>
-        <UsageCount Value="103"/>
+        <UsageCount Value="82"/>
       </Unit>
       <Unit>
         <Filename Value="unit1.pas"/>
@@ -162,29 +163,21 @@
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="Unit1"/>
         <EditorIndex Value="-1"/>
-        <UsageCount Value="109"/>
-      </Unit>
-      <Unit>
-        <Filename Value="C:\darknet\yolo4\pascal\source\NN\source\ntensors.pas"/>
-        <EditorIndex Value="-1"/>
-        <TopLine Value="67"/>
-        <CursorPos X="21" Y="12326"/>
-        <FoldState Value=" TM HotT22&apos;"/>
-        <UsageCount Value="3"/>
+        <UsageCount Value="88"/>
       </Unit>
       <Unit>
         <Filename Value="..\src\steroids.pas"/>
         <EditorIndex Value="-1"/>
         <TopLine Value="473"/>
         <CursorPos Y="498"/>
-        <UsageCount Value="52"/>
+        <UsageCount Value="31"/>
       </Unit>
       <Unit>
         <Filename Value="..\src\quicknn_qwen3.pas"/>
         <EditorIndex Value="-1"/>
         <TopLine Value="730"/>
         <CursorPos Y="754"/>
-        <UsageCount Value="100"/>
+        <UsageCount Value="79"/>
       </Unit>
       <Unit>
         <Filename Value="..\src\nvulkanhelper.pas"/>
@@ -193,14 +186,14 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="269"/>
         <CursorPos Y="298"/>
-        <UsageCount Value="64"/>
+        <UsageCount Value="43"/>
       </Unit>
       <Unit>
         <Filename Value="..\src\nhttp.pas"/>
         <UnitName Value="nHttp"/>
         <EditorIndex Value="-1"/>
         <CursorPos X="18" Y="12"/>
-        <UsageCount Value="52"/>
+        <UsageCount Value="31"/>
       </Unit>
       <Unit>
         <Filename Value="..\src\vulkan_api.pas"/>
@@ -208,29 +201,14 @@
         <WindowIndex Value="-1"/>
         <TopLine Value="4808"/>
         <CursorPos X="98" Y="4837"/>
-        <UsageCount Value="52"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\src\nchrono.pas"/>
-        <UnitName Value="nChrono"/>
-        <EditorIndex Value="-1"/>
-        <TopLine Value="43"/>
-        <CursorPos X="39" Y="58"/>
-        <UsageCount Value="9"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\src\nXML.pas"/>
-        <EditorIndex Value="-1"/>
-        <TopLine Value="357"/>
-        <CursorPos X="5" Y="369"/>
-        <UsageCount Value="7"/>
+        <UsageCount Value="31"/>
       </Unit>
       <Unit>
         <Filename Value="..\src\quicknn_kernels.pas"/>
         <EditorIndex Value="-1"/>
         <TopLine Value="188"/>
         <CursorPos X="13" Y="213"/>
-        <UsageCount Value="56"/>
+        <UsageCount Value="35"/>
       </Unit>
       <Unit>
         <Filename Value="C:\lazarus\fpc\3.2.2\source\packages\rtl-generics\src\generics.collections.pas"/>
@@ -238,10 +216,11 @@
         <EditorIndex Value="-1"/>
         <TopLine Value="121"/>
         <CursorPos X="52" Y="144"/>
-        <UsageCount Value="20"/>
+        <UsageCount Value="9"/>
       </Unit>
       <Unit>
         <Filename Value="..\src\vulkan\gemm_nn_wraptiling.comp"/>
+        <IsVisibleTab Value="True"/>
         <WindowIndex Value="1"/>
         <TopLine Value="37"/>
         <CursorPos X="58" Y="63"/>
@@ -250,25 +229,17 @@
           <EditorIndex Value="-1"/>
           <TopLine Value="164"/>
         </ExtraEditor1>
-        <UsageCount Value="52"/>
+        <UsageCount Value="31"/>
         <DefaultSyntaxHighlighter Value="C_2B_2B"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\..\lazarus\fpc\3.2.2\source\rtl\objpas\math.pp"/>
-        <UnitName Value="Math"/>
-        <EditorIndex Value="-1"/>
-        <WindowIndex Value="-1"/>
-        <TopLine Value="634"/>
-        <CursorPos X="3" Y="659"/>
-        <UsageCount Value="10"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\quicknncpu.pas"/>
         <EditorIndex Value="11"/>
-        <TopLine Value="3760"/>
-        <CursorPos X="6" Y="3779"/>
+        <TopLine Value="4636"/>
+        <CursorPos X="3" Y="4726"/>
         <UsageCount Value="100"/>
         <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\quicknn_downloader.pas"/>
@@ -281,21 +252,24 @@
       <Unit>
         <Filename Value="..\..\..\src\quicknn_common.pas"/>
         <EditorIndex Value="4"/>
+        <TopLine Value="1702"/>
+        <CursorPos Y="1639"/>
         <UsageCount Value="100"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\quicknn_transformers.pas"/>
         <EditorIndex Value="5"/>
-        <TopLine Value="510"/>
-        <CursorPos X="62" Y="512"/>
+        <TopLine Value="1661"/>
+        <CursorPos X="14" Y="1681"/>
         <UsageCount Value="100"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\quicknn_kernels.pas"/>
         <EditorIndex Value="7"/>
-        <TopLine Value="139"/>
+        <TopLine Value="328"/>
+        <CursorPos X="17" Y="347"/>
         <UsageCount Value="100"/>
         <Loaded Value="True"/>
       </Unit>
@@ -303,37 +277,29 @@
         <Filename Value="..\..\..\src\quicknn_flux.pas"/>
         <EditorIndex Value="6"/>
         <TopLine Value="238"/>
-        <CursorPos X="100" Y="243"/>
+        <CursorPos X="37" Y="263"/>
         <UsageCount Value="100"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\quicknn_vae.pas"/>
         <EditorIndex Value="3"/>
-        <TopLine Value="480"/>
-        <CursorPos X="45" Y="491"/>
+        <TopLine Value="479"/>
+        <CursorPos X="26" Y="498"/>
         <UsageCount Value="100"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="C:\Users\Sam\Downloads\oprs_simd.pas"/>
-        <EditorIndex Value="-1"/>
-        <TopLine Value="423"/>
-        <CursorPos X="13" Y="450"/>
-        <UsageCount Value="16"/>
-        <DefaultSyntaxHighlighter Value="Delphi"/>
-      </Unit>
-      <Unit>
         <Filename Value="..\..\..\src\quicknn_qwen3.pas"/>
-        <EditorIndex Value="13"/>
-        <TopLine Value="166"/>
-        <CursorPos X="26" Y="179"/>
+        <EditorIndex Value="12"/>
+        <TopLine Value="823"/>
+        <CursorPos Y="840"/>
         <UsageCount Value="103"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\steroids.pas"/>
-        <EditorIndex Value="12"/>
+        <EditorIndex Value="10"/>
         <TopLine Value="497"/>
         <CursorPos Y="517"/>
         <UsageCount Value="110"/>
@@ -342,32 +308,31 @@
       <Unit>
         <Filename Value="..\..\..\src\quicknn_zimage.pas"/>
         <EditorIndex Value="2"/>
-        <TopLine Value="254"/>
+        <TopLine Value="224"/>
         <CursorPos X="30" Y="254"/>
         <UsageCount Value="116"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="D:\development\projects\darknet\yolo4\pascal\source\NN\source\ntensors.pas"/>
-        <EditorIndex Value="10"/>
+        <EditorIndex Value="-1"/>
         <TopLine Value="7585"/>
         <CursorPos Y="7612"/>
-        <UsageCount Value="103"/>
-        <Loaded Value="True"/>
+        <UsageCount Value="102"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\..\..\lazarus\fpc\3.2.2\source\rtl\objpas\sysutils\syshelph.inc"/>
         <EditorIndex Value="-1"/>
         <TopLine Value="32"/>
         <CursorPos X="20" Y="45"/>
-        <UsageCount Value="26"/>
+        <UsageCount Value="5"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\safetensor.pas"/>
-        <EditorIndex Value="14"/>
-        <TopLine Value="568"/>
-        <CursorPos X="89" Y="590"/>
-        <UsageCount Value="12"/>
+        <EditorIndex Value="13"/>
+        <TopLine Value="571"/>
+        <CursorPos Y="597"/>
+        <UsageCount Value="100"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
@@ -375,147 +340,91 @@
         <UnitName Value="nHttp"/>
         <EditorIndex Value="1"/>
         <TopLine Value="167"/>
-        <CursorPos X="6" Y="187"/>
-        <UsageCount Value="11"/>
+        <CursorPos Y="187"/>
+        <UsageCount Value="101"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\src\nopmetrics.pas"/>
         <UnitName Value="nOpMetrics"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="8"/>
-        <TopLine Value="57"/>
         <CursorPos X="41" Y="87"/>
-        <UsageCount Value="11"/>
+        <UsageCount Value="101"/>
         <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\src\avx512_bf16.inc"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="8"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit>
     </Units>
-    <OtherDefines Count="3">
+    <OtherDefines Count="4">
       <Define0 Value="USE_MULTITHREADING"/>
       <Define1 Value="DEBUG"/>
       <Define2 Value="USE_AVX2"/>
+      <Define3 Value="USE_PROFILING"/>
     </OtherDefines>
-    <JumpHistory HistoryIndex="28">
-      <Position>
-        <Filename Value="Envision.lpr"/>
-        <Caret Line="174" Column="30" TopLine="153"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="83" Column="35" TopLine="64"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="239" Column="57" TopLine="237"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="86" Column="18" TopLine="62"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="469" Column="13" TopLine="450"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="83" Column="14" TopLine="65"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\quicknn_flux.pas"/>
-        <Caret Line="243" Column="100" TopLine="238"/>
-      </Position>
-      <Position>
-        <Filename Value="Envision.lpr"/>
-        <Caret Line="46" Column="6" TopLine="25"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\nhttp.pas"/>
-        <Caret Line="187" Column="6" TopLine="167"/>
-      </Position>
+    <JumpHistory HistoryIndex="14">
       <Position>
         <Filename Value="..\..\..\src\quicknncpu.pas"/>
-        <Caret Line="3779" Column="6" TopLine="3760"/>
+        <Caret Line="4643" Column="44" TopLine="4684"/>
       </Position>
       <Position>
         <Filename Value="..\..\..\src\quicknn_common.pas"/>
-        <Caret Line="2315" Column="6" TopLine="2287"/>
+        <Caret Line="251" Column="17" TopLine="228"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\quicknn_downloader.pas"/>
-        <Caret Line="113" Column="6" TopLine="93"/>
+        <Filename Value="..\..\..\src\quicknn_common.pas"/>
+        <Caret Line="1660" Column="3" TopLine="1641"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\quicknn_kernels.pas"/>
-        <Caret Line="45" Column="11" TopLine="13"/>
+        <Filename Value="..\..\..\src\quicknncpu.pas"/>
+        <Caret Line="4621" Column="30" TopLine="4617"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="41" Column="17" TopLine="25"/>
+        <Filename Value="..\..\..\src\quicknncpu.pas"/>
+        <Caret Line="4705" Column="44" TopLine="4683"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="75" Column="3" TopLine="38"/>
+        <Filename Value="..\..\..\src\quicknncpu.pas"/>
+        <Caret Line="1472" Column="11" TopLine="1537"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="34" Column="20" TopLine="14"/>
+        <Filename Value="..\..\..\src\quicknncpu.pas"/>
+        <Caret Line="1357" Column="77" TopLine="1346"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="52" Column="3" TopLine="14"/>
+        <Filename Value="..\..\..\src\ops_avx2.inc"/>
+        <Caret Line="2440" Column="28" TopLine="2416"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="41" Column="18" TopLine="14"/>
+        <Filename Value="..\..\..\src\ops_avx2.inc"/>
+        <Caret Line="2454" Column="29" TopLine="2415"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="43" Column="31" TopLine="14"/>
+        <Filename Value="..\..\..\src\ops_avx2.inc"/>
+        <Caret Line="2438" Column="30" TopLine="2418"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="83" TopLine="44"/>
+        <Filename Value="..\..\..\src\ops_avx2.inc"/>
+        <Caret Line="2454" Column="29" TopLine="2427"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="43" Column="29" TopLine="21"/>
+        <Filename Value="..\..\..\src\ops_avx2.inc"/>
+        <Caret Line="2559" Column="30" TopLine="2518"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="83" TopLine="44"/>
+        <Filename Value="..\..\..\src\ops_avx2.inc"/>
+        <Caret Line="2696" Column="29" TopLine="2655"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="41" Column="21" TopLine="21"/>
+        <Filename Value="..\..\..\src\ops_avx2.inc"/>
+        <Caret Line="2750" Column="77" TopLine="2709"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="75" Column="16" TopLine="50"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="42" Column="20" TopLine="19"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="83" Column="9" TopLine="56"/>
-      </Position>
-      <Position>
-        <Filename Value="Envision.lpr"/>
-        <Caret Line="174" Column="16" TopLine="152"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="42" Column="17" TopLine="20"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\src\nopmetrics.pas"/>
-        <Caret Line="90" Column="21" TopLine="65"/>
-      </Position>
-      <Position>
-        <Filename Value="Envision.lpr"/>
-        <Caret Line="127" Column="95" TopLine="91"/>
+        <Filename Value="..\..\..\src\quicknncpu.pas"/>
+        <Caret Line="1357" Column="49" TopLine="1357"/>
       </Position>
     </JumpHistory>
     <RunParams>

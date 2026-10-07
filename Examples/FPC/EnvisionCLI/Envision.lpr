@@ -131,32 +131,33 @@ begin
   //params.seed:= 666;
   //params.seed:=1781898218;
   params.powerAlpha := 2;
-  params.num_steps := 2;
   substep_callback:=afterblockForward;
   step_callback := afterstep;
   text_progress_callback:=afterstep;
   vae_progress_callback := afterstep;
-  //PROMPT := 'a cute realistic panda holding a "I will code for food!" signboard';
-  PROMPT := 'a cute little realistic cheeta holding a "I will code for food!" signboard';
+  PROMPT := 'a cute realistic panda holding a "I will code for food!" signboard';
+  //PROMPT := 'a cute little realistic cheetah holding a "I will code for food!" signboard';
   //PROMPT := 'cartimaphoble hembrashel';
+  //PROMPT := 'a realistic pink grisly bear wearing a blue hat holding a (I''m Sad) signboard.';
+  //PROMPT := 'On a desk, a laptop displays a wallpaper of a countryside landscape with a small river. The landscape extends beyond the computer screen, invading the desk, the walls, and the room. The river overflows the screen, and plants and trees grow beyond its boundaries, blending seamlessly with the surrounding environment. The style is a stunning 3D rendering, with deep, cinematic lighting.';
+  //PROMPT := 'a cute pink raccoon holding a "I''m Sad" signboard';
+  //PROMPT := 'A mechanical dog made of brass gears and copper pipes, steampunk style, highly detailed.';
+  //PROMPT := 'een robotkonijn dat zingt in de ruimte';
+  //PROMPT := 'أرنب روبوتي يغني في الفضاء';
+  //PROMPT := 'أرنب روبوتي يتناول العشاء مع قطة';
+  //PROMPT := 'تفاحة';
   {$define _ZIMAGE}
   {$ifdef ZIMAGE}
+  params.num_steps := 9;
   zimage := TQNNZImage.load('../../models/Z-Image-Turbo', afterphase);
   zimage.use_mmap:=true;
   img := zimage.generate(PROMPT, params);
-  //img := zimage.generate('a realistic pink grisly bear wearing a blue hat holding a (I''m Sad) signboard.', params);
-  //img := zimage.generate('On a desk, a laptop displays a wallpaper of a countryside landscape with a small river. The landscape extends beyond the computer screen, invading the desk, the walls, and the room. The river overflows the screen, and plants and trees grow beyond its boundaries, blending seamlessly with the surrounding environment. The style is a stunning 3D rendering, with deep, cinematic lighting.', params);
-  //img := zimage.generate('a cute pink raccoon holding a "I''m Sad" signboard', params);
-  //img := zimage.generate('A mechanical dog made of brass gears and copper pipes, steampunk style, highly detailed.', params);
-  //img := flux.generate('een robotkonijn dat zingt in de ruimte', params);
-  //img := flux.generate('أرنب روبوتي يغني في الفضاء', params);
-  //img := flux.generate('أرنب روبوتي يتناول العشاء مع قطة', params);
-  //img := flux.generate('تفاحة', params);
   imgFile := GetCurrentDir()+ DirectorySeparator+FormatDateTime('YYYY_MM_DD_hhnnsszzz', Now())+ '_pascal.png';
   writeln('Saving to [', imgFile ,']');
   img.saveToFile(imgFile, 'Envision', '{"program" : "Invision , a (text to image/ image to image) generator example written in Object Pascal", "model" : "'+zimage.model_name+'"'+'"prompt" : "'+StringReplace(PROMPT, '"', '\"', [rfReplaceAll])+'", "seed" : '+IntToStr(params.seed)+'}');
   zimage.free;
   {$else}
+  params.num_steps := 2;
 
   //src := TQNNImage.loadFromFile('bear.png');
   //src.print();

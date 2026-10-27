@@ -43,8 +43,15 @@ const
   MAX_COMMAND_BUFFER_COUNT = $10;
 
 type
-  phalf = ^half;
-  half = type smallint;
+  PHalf = ^half;
+  Half = type smallint;
+
+  PBF16 = ^BF16;
+  BF16 = type smallint;
+
+  PPF8 = ^PFP8;
+  PFP8 = type shortint;
+
   { TWorkloadSizes }
 
   TWorkloadSizes = record
@@ -56,10 +63,14 @@ type
 
   TVulkanDevice = record
   public
+    index                    : longint;
     PhysicalDevice           : VkPhysicalDevice;
     memoryProperties         : VkPhysicalDeviceMemoryProperties;
-    deviceProperties         : VkPhysicalDeviceProperties;
+    deviceIdProperties       : VkPhysicalDeviceIDProperties;
+    deviceProperties         : VkPhysicalDeviceProperties2;
     deviceFeatures           : VkPhysicalDeviceFeatures;
+    deviceLayerProperties    : TArray<VkLayerProperties>;
+    deviceExtProperties      : TArray<VkExtensionProperties>;
     queueIndex               : longint;
     queuePropCount           : longword;
     queueProperties          : TArray<VkQueueFamilyProperties>;
@@ -68,6 +79,7 @@ type
 
   TVulkanPrecision = (
     //floating
+    vpUnknowen,
     vpF32,
     vpBf16,
     vpF16,
@@ -92,23 +104,78 @@ type
     vpBoolean
     //vpE8m0,
   );
+const
+  VulkanPrecisionBitSizes : array[low(TVulkanPrecision)..high(TVulkanPrecision)] of longint = (
+    //floating
+    8,
+    32,
+    16,
+    16,
+    8,
+    8,
+    4,
+    4,
+    64,
+
+    //signed integers
+    32,
+    16,
+    8,
+    4,
+
+    //unsigned integers
+    32,
+    16,
+    8,
+    4,
+
+    8
+    //vpE8m0,
+  );
+
+type
+  TVulkanMemoryAttr  = (
+                       maSource, // memory is a readable
+                       maTarget, //memory is writable
+                       maStorage, // compute shader
+                       maVertex,
+                       maIndex,
+                       maInDirect,
+                       maDevice, // located in device otherwise in the shared (slower)
+                       maHostVisible, // mappable
+                       maHostCoherent, // instantly reflects updates
+                       maHostCached, // memory is cached
+                       maPointerMath // device memory is the device ADDRESS BIT not a handle, allowng pointer math
+                     );
+
+  TVulkanMemoryAttrs = set of TVulkanMemoryAttr;
+
   { TVulkanMemory }
 
   TVulkanMemory = record
     buffer : VkBuffer;
     memory : VkDeviceMemory;
-    size   : VkDeviceSize;
+    size : VkDeviceSize;
+    offset : longint;
     precision : TVulkanPrecision;
-    isStaging : boolean;
+    attributes : TVulkanMemoryAttrs;
     scaler    : TArray<TVulkanMemory>;
     blockSize : int64;
+  {$ifdef MSWINDOWS}
+    handle : THandle;
+  {$else}
+    fd : longint;
+  {$endif}
+    //class operator implicit(const val:pointer):TVulkanMemory;
     class operator initialize({$ifdef FPC}var{$else}out{$endif} mem:TVulkanMemory);
+    class operator add(const src:TVulkanMemory; const aOffset:longint):TVulkanMemory  ;
+    class operator add(const src:TVulkanMemory; const aOffset:int64):TVulkanMemory  ;
   end;
 
   {$if not defined(Int4)}
   Int4 = -8..7;
   {$endif}
-  TVulkanArgType = (atPointer, atInt4, atInt8, atInt16, atInt32, atInt64, atBF16, atHalf, atSingle, atDouble);
+  TVulkanArgType = (atPointer, atInt4, atInt8, atInt16, atInt32, atInt64, atUInt8, atUInt16, atUInt32, atUInt64, atHalf, atBF16, atFP8, atSingle, atDouble);
 
   { TVulkanArg }
 
@@ -118,6 +185,7 @@ type
     class operator implicit(const src:smallint):TVulkanArg;
     class operator implicit(const src:longint ):TVulkanArg;
     class operator implicit(const src:int64   ):TVulkanArg;
+    class operator implicit(const src:uint64  ):TVulkanArg;
     class operator implicit(const src:Half    ):TVulkanArg;
     class operator implicit(const src:Single  ):TVulkanArg;
     class operator implicit(const src:double  ):TVulkanArg;
@@ -129,6 +197,7 @@ type
     class operator implicit(const src:TVulkanArg):smallint;
     class operator implicit(const src:TVulkanArg):longint ;
     class operator implicit(const src:TVulkanArg):int64   ;
+    class operator implicit(const src:TVulkanArg):uint64  ;
     class operator implicit(const src:TVulkanArg):Half    ;
     class operator implicit(const src:TVulkanArg):Single  ;
     class operator implicit(const src:TVulkanArg):double  ;
@@ -144,7 +213,13 @@ type
       atInt16   :(vInt16  : smallint);
       atint32   :(vInt32  : longint );
       atInt64   :(vInt64  : int64   );
+      atUInt8   :(vUInt8  : Byte);
+      atUInt16  :(vUInt16 : Word);
+      atUint32  :(vUInt32 : LongWord);
+      atUInt64  :(vUInt64 : UInt64  );
+      atBF16    :(vBF16   : BF16    );
       atHalf    :(vHalf   : Half    );
+      atFP8     :(vPFP8   : PFP8    );
       atSingle  :(vSingle : Single  );
       atDouble  :(vDouble : Double  );
   end;
@@ -172,8 +247,8 @@ type
   TVulkanArgs = TArray<TVulkanArg>;
 
   const
-    VULKAN_ARGS_MAX_BUFFERS_COUNT = $10;
-    VULKAN_ARGS_MAX_CONSTANTS_COUNT = $10;
+    VULKAN_ARGS_MAX_BUFFERS_COUNT = $20;
+    VULKAN_ARGS_MAX_CONSTANTS_COUNT = $20;
 
   type
     TKernelHandle = type longint;
@@ -185,10 +260,25 @@ type
     TVulkanConstants = array [0..VULKAN_ARGS_MAX_CONSTANTS_COUNT-1] of longint;
     //TSPIVTDictionary = TDictionary<rawbytestring, TKernelHandle>;
   const
-    VK_BUFFER_USAGE_STORAGE = longword(VK_BUFFER_USAGE_TRANSFER_DST_BIT) {or longword(VK_BUFFER_USAGE_TRANSFER_SRC_BIT) }or longword(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    VK_BUFFER_USAGE_STAGING = longword(VK_BUFFER_USAGE_TRANSFER_DST_BIT) {or longword(VK_BUFFER_USAGE_TRANSFER_SRC_BIT)};
-    VK_MEMORY_PROPERTY_STORAGE  = longword(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    VK_MEMORY_PROPERTY_STAGING  = longword(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) or longword(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    VK_BUFFER_USAGE_STAGING = longword(VK_BUFFER_USAGE_TRANSFER_DST_BIT)
+                            or longword(VK_BUFFER_USAGE_TRANSFER_SRC_BIT)
+                            or longword(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+
+    VK_BUFFER_USAGE_STORAGE = longword(VK_BUFFER_USAGE_TRANSFER_DST_BIT)
+                            or longword(VK_BUFFER_USAGE_TRANSFER_SRC_BIT)
+                            or longword(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
+                            or longword(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+                            ;
+
+    VK_MEMORY_PROPERTY_STAGING  = longword(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+                                or longword(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+                                //or longword(VK_MEMORY_PROPERTY_HOST_CACHED_BIT)
+                                ;
+
+    VK_MEMORY_PROPERTY_STORAGE  = longword(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+                                //or longword(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+                                //or longword(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+                                ;
 
   private
     class function loadFile(const fileName: TFileName): RawByteString; static;
@@ -196,14 +286,18 @@ type
     class procedure CreateInstance(const appName:ansistring);   static;
     class procedure DestroyInstance();                          static;
     class function deviceCount():longword;                      static;
-    class function QueryPhysicalDevices(const flags : VkQueueFlags = VkQueueFlags(VK_QUEUE_COMPUTE_BIT)):TArray<TVulkanDevice>;       static;
-
+    class function CheckInstanceExtension(const aExtensionName:ansistring):boolean;
   private
-    VulkanDevice          : TVulkanDevice;
     device                : VkDevice;
     queue                 : vkQueue;
     cmdPool               : VkCommandPool;
     cmd                   : TVulkanCommand;
+  {$ifdef MSWINDOWS}
+    vkGetMemoryWin32HandleKHR : PFN_vkGetMemoryWin32HandleKHR;
+  {$else}
+    vkGetMemoryFdKHR : PFN_vkGetMemoryFdKHR;
+  {$endif}
+
 
     //shaders               : TArray<VkShaderModule>;
 
@@ -215,20 +309,32 @@ type
   public
     class var
       instance               : VkInstance;
-      VulkanDevices          : TArray<TVulkanDevice>;
-    constructor Create(const deviceIndex: longint = 0; const queuePriority: single = 1.0);
+      availableLayers        : TArray<VkLayerProperties>;
+      availableExtensions    : TArray<VkExtensionProperties>;
+      vulkanDevices          : TArray<TVulkanDevice>;
+  public
+    vulkanDevice          : TVulkanDevice;
+    supportsInterOp : boolean;
+    class function QueryPhysicalDevices(const flags : VkQueueFlags = VkQueueFlags(VK_QUEUE_COMPUTE_BIT)):TArray<TVulkanDevice>;       static;
+    constructor Create(const deviceIndex: longint = 0; aExtensions:TArray<pAnsiChar> = nil; const queuePriority: single = 1.0);
     destructor Destroy; override;
     //function CompileSPIRV(const sourcefile:TFileName):RawByteString;
+    function CheckExtention(const aExtension:ansistring):boolean;
     function createBuffer(const byteSize:VkDeviceSize ; const usage: vkBufferUsageFlags = VK_BUFFER_USAGE_STORAGE):VkBuffer;
-    function allocMem(const buffer:VkBuffer; const memProperty: VkMemoryPropertyFlags = VK_MEMORY_PROPERTY_STORAGE):VkDeviceMemory;
+    function allocMem(const buffer:VkBuffer; const memProperty: VkMemoryPropertyFlags = VK_MEMORY_PROPERTY_STORAGE):VkDeviceMemory;  overload;
+    // size in bytes
     function createStorageMemory(const size: uint64):TVulkanMemory;
+    //size in bytes
     function createStagingMemory(const size: uint64):TVulkanMemory;
+    function createMemory(const N: uint64; const aPrecision:TVulkanPrecision; const attr:TVulkanMemoryAttrs = [maSource, maTarget]):TVulkanMemory;
     procedure freeMemory(const mem:TVulkanMemory);
     function mapMemory(const mem:TVulkanMemory; const aOffset:longword=0):pointer;
     procedure unMapMemory(const mem:TVulkanMemory);
     procedure pushToDevice(const aData:pointer; const mem:TVulkanMemory; N:NativeInt=-1);
     procedure pullFromDevice(const aData:pointer; const mem:TVulkanMemory; N:NativeInt=-1);
-    procedure copyBuffer(const src, dst: TVulkanMemory; const N:VkDeviceSize = VK_WHOLE_SIZE; const srcOffset:VkDeviceSize=0; const dstOffset:VkDeviceSize=0);
+    procedure copyBuffer(const src, dst: TVulkanMemory);overload;
+    // aRegions length must be a multiple of 3 [(srsOffset, dstOffset, dataSize), ...]
+    procedure copyBuffer(const src, dst: TVulkanMemory; const aRegions:TArray<VkDeviceSize>);overload;
     function loadShader(const fileNameSpirV: RawByteString):VkShaderModule;
     procedure preparePipeline(const Op: TKernelHandle; const shader: VkShaderModule; const localThreads:TWorkloadSizes); overload;
     procedure preparePipeline(const Op: TKernelHandle; const shader : VkShaderModule ); overload;
@@ -236,6 +342,7 @@ type
     procedure beginCommadBuffer;
     procedure endCommandBuffer;
     procedure finish;
+    //procedure Create
   end;
 type
   nfloat = single;
@@ -270,6 +377,10 @@ procedure array_stat(const N:longword; const a:Pnfloat; const decimals: word=2);
 procedure array_stat(const a:TArray<nfloat>; const decimals: word=2); overload;
 function array_sum_sqr_diff(const N:longword; const a,b:Pnfloat):single; overload;
 function array_sum_sqr_diff(const a,b:TArray<nfloat>):single; overload;
+function array_sum_abs_diff(const N:longword; const a,b:Pnfloat):single; overload;
+function array_sum_abs_diff(const a,b:TArray<nfloat>):single; overload;
+function array_max_abs_diff(const N:longword; const a,b:Pnfloat):single; overload;
+function array_max_abs_diff(const a,b:TArray<nfloat>):single; overload;
 procedure array_print_diff(const N:longword; const a,b:Pnfloat; const Eps: single=0.000001); overload;
 procedure array_print_diff(const a,b:TArray<nfloat>; const Eps: single=0.000001); overload;
 procedure array_fma(const N:longword; const a,b :nfloat; const x, y:Pnfloat); overload;
@@ -280,7 +391,7 @@ procedure array_gemm_nt(const M,N,K : longword; const ALPHA:single; const A:TArr
 
 implementation
 {$ifdef MSWINDOWS}
-uses windows;
+uses windows, quicknncpu;
 {$endif}
 
 procedure SAFE_CALL(const res:VkResult);
@@ -296,6 +407,22 @@ end;
 function VK_MAKE_VERSION(const major, minor, patch: longword): longword;inline;
 begin
   result :=((major shl 22) or (minor shl 12) or patch)
+end;
+
+function CHECK_NAME(const aName: ansistring; const aNames:TArray<pAnsiChar>):boolean;
+var i: integer;
+begin
+  result :=false;
+  for i:=0 to high(aNames) do
+    if aName = aNames[i] then exit(true)
+end;
+
+function INDEXOF_NAME(const aName: ansistring; const aNames:TArray<pAnsiChar>):integer;
+var i: integer;
+begin
+  result := -1;
+  for i:=0 to high(aNames) do
+    if aName = aNames[i] then exit(i)
 end;
 
 { TWorkloadSizes }
@@ -319,10 +446,31 @@ end;
 
 { TVulkanMemory }
 
+//class operator TVulkanMemory.implicit(const val: pointer): TVulkanMemory;
+//begin
+//  FillChar(result, sizeof(TVulkanMemory), #0);
+//  result.buffer := val;
+//end;
+
 class operator TVulkanMemory.initialize({$ifdef FPC}var{$else}out{$endif} mem: TVulkanMemory);
 begin
   FillChar(mem, sizeOf(TVulkanMemory), #0)
 end;
+
+class operator TVulkanMemory.add(const src:TVulkanMemory; const aOffset:longint):TVulkanMemory  ;
+begin
+  assert(inRange(src.offset + aOffset, 0, src.Size), '[ERROR] offset is beyond the memory boundries.');
+  result := src;
+  result.offset:= src.offset + aOffset;
+end;
+
+class operator TVulkanMemory.add(const src:TVulkanMemory; const aOffset:int64):TVulkanMemory  ;
+begin
+  assert(inRange(src.offset + aOffset, 0, src.Size), '[ERROR] offset is beyond the memory boundries.');
+  result := src;
+  result.offset:= src.offset + aOffset;
+end;
+
 
 { TVulkanArg }
 
@@ -356,6 +504,12 @@ begin
   result.vInt64 := src;
 end;
 
+class operator TVulkanArg.implicit(const src: uint64): TVulkanArg;
+begin
+  result.argType  := atUInt64;
+  result.vUInt64 := src;
+end;
+
 class operator TVulkanArg.implicit(const src: Half): TVulkanArg;
 begin
   result.argType  := atHalf;
@@ -377,6 +531,7 @@ end;
 class operator TVulkanArg.implicit(const src: TVulkanMemory): TVulkanArg;
 begin
   result.Size := src.size;
+  result.argType:=atPointer;// test
   result.vPointer := src.buffer;
 end;
 
@@ -403,6 +558,11 @@ end;
 class operator TVulkanArg.implicit(const src: TVulkanArg): int64;
 begin
   result := src.vInt64;
+end;
+
+class operator TVulkanArg.implicit(const src: TVulkanArg): uint64;
+begin
+  result := src.vUInt64;
 end;
 
 class operator TVulkanArg.implicit(const src: TVulkanArg): Half;
@@ -464,23 +624,30 @@ var
   appInfo                    : vkApplicationInfo;
   extensions, validationLyr  : array of PAnsiChar;
   features                   : VkValidationFeaturesEXT ;
-  enabledFeatures            : array of VkValidationFeatureEnableEXT ;
-  disabledFeatures           : array of VkValidationFeatureDisableEXT ;
-  instLayerPropCount         : longword;
-  instLayerProps             : array of VkLayerProperties;
+  enabledValidationFeatures  : array of VkValidationFeatureEnableEXT ;
+  disabledValidationFeatures : array of VkValidationFeatureDisableEXT ;
+  elementCount         : longword;
+  //instLayerProps             : array of VkLayerProperties;
+  //deviceExtProps             : array of VkExtensionProperties;
 
 begin
 //  SetExceptionMask([exZeroDivide, exInvalidOp, exPrecision]);
   instance                    :=    nil;
-  {$ifdef DEBUG}
-  vkEnumerateInstanceLayerProperties(@instLayerPropCount, nil) ;
-  setLength(instLayerProps, instLayerPropCount);
-  vkEnumerateInstanceLayerProperties(@instLayerPropCount, pointer(instLayerProps)) ;
+  SAFE_CALL(vkEnumerateInstanceLayerProperties(@elementCount, nil)) ;
+  setLength(availableLayers, elementCount);
+  SAFE_CALL(vkEnumerateInstanceLayerProperties(@elementCount, pointer(availableLayers)));
 
-  //extensions                  :=    ['VK_EXT_debug_printf'] ;
-  //validationLyr               :=    ['VK_LAYER_KHRONOS_validation'];
-  //enabledFeatures             :=    [VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT];
+  SAFE_CALL(vkEnumerateInstanceExtensionProperties(nil, @elementCount, nil));
+  setLength(availableExtensions, elementCount);
+  SAFE_CALL(vkEnumerateInstanceExtensionProperties(nil, @elementCount, pointer(availableExtensions)));
+  {$ifdef DEBUG}
+  //extensions                  :=    [VK_EXT_DEBUG_UTILS_EXTENSION_NAME] ;
+  //validationLyr               :=    [VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME];
+  //enabledValidationFeatures   :=    [VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT];
   {$endif}
+  insert(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME, extensions, length(extensions));
+  insert(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME, extensions, length(extensions));
+  insert(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME, extensions, length(extensions));
 
   appInfo                     :=    default(VkApplicationInfo);
   appInfo.sType               :=    VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -489,10 +656,10 @@ begin
   appInfo.apiVersion          :=    VK_API_VERSION_1_2;
 
   features                    :=    default(VkValidationFeaturesEXT);
-  features.enabledValidationFeatureCount  := length(enabledFeatures);
-  features.pEnabledValidationFeatures     := pointer(enabledFeatures);
-  features.disabledValidationFeatureCount := length(disabledFeatures);
-  features.pDisabledValidationFeatures    := pointer(disabledFeatures);
+  features.enabledValidationFeatureCount  := length(enabledValidationFeatures);
+  features.pEnabledValidationFeatures     := pointer(enabledValidationFeatures);
+  features.disabledValidationFeatureCount := length(disabledValidationFeatures);
+  features.pDisabledValidationFeatures    := pointer(disabledValidationFeatures);
 
   instanceCreateInfo          :=    default(VkInstanceCreateInfo);
   instanceCreateInfo.sType    :=    VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -528,7 +695,7 @@ var
   pd: TArray<VkPhysicalDevice>;
   R : TArray<TVulkanDevice>;
   devCount : longword;
-  i, J: Integer;
+  i, J, k: Integer;
 begin
   devCount := deviceCount();
   result := nil;
@@ -536,14 +703,25 @@ begin
   setLength(pd, devCount);
   SAFE_CALL(vkEnumeratePhysicalDevices(instance, @devCount, pointer(pd)));
   for i:=0 to high(r) do begin
+    r[i].index := i;
     r[i].queueIndex := -1;;
     r[i].PhysicalDevice := pd[i];
-    vkGetPhysicalDeviceProperties(pd[i], @r[i].deviceProperties);
+    r[i].deviceIdProperties.sType:=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+    r[i].deviceProperties.sType:=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    r[i].deviceProperties.pNext:=@r[i].deviceIdProperties;
+    vkGetPhysicalDeviceProperties2(pd[i], @r[i].deviceProperties);
     vkGetPhysicalDeviceFeatures(pd[i], @r[i].deviceFeatures);
     vkGetPhysicalDeviceMemoryProperties(pd[i], @r[i].memoryProperties);
     vkGetPhysicalDeviceQueueFamilyProperties(pd[i], @r[i].queuePropCount, nil);
     setLength(r[i].queueProperties, r[i].queuePropCount);
     vkGetPhysicalDeviceQueueFamilyProperties(pd[i], @r[i].queuePropCount, pointer(r[i].queueProperties));
+    SAFE_CALL(vkEnumerateDeviceLayerProperties(pd[i], @devCount, nil));
+    setLength(r[i].deviceLayerProperties, devCount);
+    setLength(r[i].deviceExtProperties, devCount);
+    SAFE_CALL(vkEnumerateDeviceLayerProperties(pd[i], @devCount, pointer(r[i].deviceLayerProperties)));
+    SAFE_CALL(vkEnumerateDeviceExtensionProperties(pd[i], nil, @devCount, nil));
+    setLength(r[i].deviceExtProperties, devCount);
+    SAFE_CALL(vkEnumerateDeviceExtensionProperties(pd[i], nil, @devCount, pointer(r[i].deviceExtProperties)));
     for j:=0 to r[i].queuePropCount-1 do
       if 0<>(r[i].queueProperties[j].queueFlags and flags) then begin
         r[i].queueIndex := j;
@@ -553,8 +731,22 @@ begin
   end;
 end;
 
+class function TVulkanCompute.CheckInstanceExtension(
+  const aExtensionName: ansistring): boolean;
+var
+  i: Integer;
+begin
+  result := false;
+  for i:=0 to high(availableExtensions) do begin
+    //writeln(availableExtensions[i].extensionName);
+    if aExtensionName = availableExtensions[i].extensionName then
+      exit(true);
+  end;
+
+end;
+
 constructor TVulkanCompute.Create(const deviceIndex: longint;
-  const queuePriority: single);
+  aExtensions: TArray<pAnsiChar>; const queuePriority: single);
 var
   queueInfo  : VkDeviceQueueCreateInfo;
   deviceInfo : VkDeviceCreateInfo;
@@ -563,18 +755,56 @@ var
   fenceInfo : VkFenceCreateInfo;
   i: Integer;
 begin
-  VulkanDevice := VulkanDevices[deviceIndex];
+  vulkanDevice := vulkanDevices[deviceIndex];
   queueInfo := default(VkDeviceQueueCreateInfo);
   queueInfo.sType := VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queueInfo.queueFamilyIndex := VulkanDevice.queueIndex;
+  queueInfo.queueFamilyIndex := vulkanDevice.queueIndex;
   queueInfo.queueCount := 1;
   queueInfo.pQueuePriorities := @queuePriority;
+  //VK_KHR_cosh
+  supportsInterOp:=CheckExtention(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME)
+    and CheckExtention(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME)
+    and CheckExtention(VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME)
+    {$ifdef MSWINDOWS}
+    and CheckExtention(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME)
+    and CheckExtention(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME)
+    and CheckExtention(VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME)
+    {$else}
+    and CheckExtention(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME)
+    and CheckExtention(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME)
+    and CheckExtention(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME)
+    {$endif}
+    ;
+  //supportsInterOp:=false;
+  if supportsInterOp then begin
+    insert(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME, aExtensions, length(aExtensions));
+    insert(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME, aExtensions, length(aExtensions));
+    insert(VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME, aExtensions, length(aExtensions));
+  {$ifdef MSWINDOWS}
+    insert(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME    , aExtensions, length(aExtensions));
+    insert(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME , aExtensions, length(aExtensions));
+    insert(VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME     , aExtensions, length(aExtensions));
+  {$else}
+    insert(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME    , aExtensions, length(aExtensions));
+    insert(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME , aExtensions, length(aExtensions));
+    insert(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME     , aExtensions, length(aExtensions));
+  {$endif}
+  end;
 
   deviceInfo := default(VkDeviceCreateInfo);
   deviceInfo.sType := VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
   deviceInfo.queueCreateInfoCount := 1;
   deviceInfo.pQueueCreateInfos := @queueInfo;
+  deviceInfo.enabledExtensionCount:=length(aExtensions);
+  deviceInfo.ppEnabledExtensionNames:=pointer(aExtensions);
   SAFE_CALL(vkCreateDevice(VulkanDevice.PhysicalDevice, @deviceInfo, nil, @device));
+
+  {$ifdef MSWINDOWS}
+  vkGetMemoryWin32HandleKHR := vkGetDeviceProcAddr(device, 'vkGetMemoryWin32HandleKHR');
+  {$else}
+  vkGetMemoryFdKHR := vkGetDeviceProcAddr(device, 'vkGetMemoryFdKHR');
+  {$endif}
+
   vkGetDeviceQueue(device, VulkanDevice.queueIndex, 0, @Queue);
 
   poolInfo := default(VkCommandPoolCreateInfo);
@@ -620,6 +850,18 @@ begin
   inherited Destroy;
 end;
 
+function TVulkanCompute.CheckExtention(const aExtension: ansistring): boolean;
+var
+  i: Integer;
+begin
+  result := false;
+  for i:=0 to High(VulkanDevice.deviceExtProperties) do begin
+      //writeln(VulkanDevice.deviceExtProperties[i][j].extensionName);
+      if aExtension=VulkanDevice.deviceExtProperties[i].extensionName then
+        exit(true);
+  end;
+end;
+
 {
 function TVulkanCompute.CompileSPIRV(const sourcefile: TFileName): RawByteString;
 var
@@ -661,11 +903,21 @@ function TVulkanCompute.allocMem(const buffer: VkBuffer; const memProperty: VkMe
 var
   memReq  : VkMemoryRequirements;
   memInfo : VkMemoryAllocateInfo;
+  memExportAllocInfo : VkExportMemoryAllocateInfo;
 begin
   vkGetBufferMemoryRequirements(device, buffer , @memReq);
+  memExportAllocInfo := default(VkExportMemoryAllocateInfo);
+  memExportAllocInfo.sType:=VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+  {$ifdef MSWINDOWS}
+  memExportAllocInfo.handleTypes:=longword(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT);
+  {$else}
+  memExportAllocInfo.handleTypes:=longword(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT);
+  {$endif}
   memInfo := default(VkMemoryAllocateInfo);
   memInfo.sType := VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   memInfo.allocationSize:= memReq.size;
+  if supportsInterOp then
+    meminfo.pNext:=@memExportAllocInfo;
   memInfo.memoryTypeIndex := VulkanDevice.getMemoryIndex(memReq.memoryTypeBits, memProperty);
   try
     SAFE_CALL(vkAllocateMemory(device, @memInfo, nil, @result));
@@ -679,19 +931,116 @@ begin
 end;
 
 function TVulkanCompute.createStorageMemory(const size: uint64): TVulkanMemory;
+var
+  memHandleInfo :
+  {$ifdef MSWiNDOWS}
+  VkMemoryGetWin32HandleInfoKHR;
+  {$else}
+  VkMemoryGetFdInfoKHR;
+  {$endif}
 begin
   result.buffer:=createBuffer(size);
   result.memory := allocMem(result.buffer);
   result.size := size;
-  result.isStaging:=false
+  result.attributes := [maSource, maTarget, maStorage, maDevice, maPointerMath];
+
+  if supportsInterOp then begin
+    {$ifdef MSWINDOWS}
+    memHandleInfo.sType      := VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
+    memHandleInfo.pNext      := nil;
+    memHandleInfo.memory     := result.memory;
+    memHandleInfo.handleType := VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
+    SAFE_CALL(vkGetMemoryWin32HandleKHR(device, @memHandleInfo, @result.handle));
+    {$else}
+    memHandleInfo.sType      := VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
+    memHandleInfo.pNext      := nil;
+    memHandleInfo.memory     := result.memory;
+    memHandleInfo.handleType := VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+    SAFE_CALL(vkGetMemoryFdKHR(device, @memHandleInfo, @result.fd));
+    {$endif}
+  end;
 end;
 
 function TVulkanCompute.createStagingMemory(const size: uint64): TVulkanMemory;
+var
+  memHandleInfo :
+  {$ifdef MSWiNDOWS}
+  VkMemoryGetWin32HandleInfoKHR;
+  {$else}
+  VkMemoryGetFdInfoKHR;
+  {$endif}
 begin
   result.buffer:=createBuffer(size, VK_BUFFER_USAGE_STAGING);
   result.memory := allocMem(result.buffer, VK_MEMORY_PROPERTY_STAGING);
   result.size := size;
-  result.isStaging:=true
+  result.attributes:= [maSource, maTarget, maHostVisible, maHostCoherent, maPointerMath];
+
+  if supportsInterOp then begin
+    {$ifdef MSWINDOWS}
+    memHandleInfo.sType      := VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
+    memHandleInfo.pNext      := nil;
+    memHandleInfo.memory     := result.memory;
+    memHandleInfo.handleType := VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+    SAFE_CALL(vkGetMemoryWin32HandleKHR(device, @memHandleInfo, @result.handle));
+    {$else}
+    memHandleInfo.sType      := VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
+    memHandleInfo.pNext      := nil;
+    memHandleInfo.memory     := result.memory;
+    memHandleInfo.handleType := VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    SAFE_CALL(vkGetMemoryFdKHR(device, @memHandleInfo, @result.fd));
+    {$endif}
+  end;
+end;
+
+function TVulkanCompute.createMemory(const N: uint64; const aPrecision: TVulkanPrecision; const attr: TVulkanMemoryAttrs): TVulkanMemory;
+var
+  uflags : VkBufferUsageFlags;
+  pflag : VkMemoryPropertyFlags;
+  sz : uint64;
+  memHandleInfo :
+  {$ifdef MSWiNDOWS}
+  VkMemoryGetWin32HandleInfoKHR;
+  {$else}
+  VkMemoryGetFdInfoKHR;
+  {$endif}
+begin
+  sz := (N*VulkanPrecisionBitSizes[aPrecision]+4) div 8;
+  uflags := longword(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) *ord(maStorage in attr)
+         or longword(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)  *ord(maVertex in attr)
+         or longword(VK_BUFFER_USAGE_INDEX_BUFFER_BIT)   *ord(maIndex in attr)
+         or longword(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) *ord(maInDirect in attr)
+         or longword(VK_BUFFER_USAGE_TRANSFER_SRC_BIT)   *ord(maSource in attr)
+         or longword(VK_BUFFER_USAGE_TRANSFER_DST_BIT)   *ord(maTarget in attr)
+         or longword(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)*ord(maPointerMath in attr);
+
+  result.buffer := createBuffer(sz, uflags);
+
+
+  pflag  := longword(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)*ord(maDevice in attr)
+         or longword(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)*ord(maHostVisible in attr)
+         or longword(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)*ord(maHostCoherent in attr)
+         or longword(VK_MEMORY_PROPERTY_HOST_CACHED_BIT)*ord(maHostCached in attr);
+
+  result.precision := aPrecision;
+  result.memory := allocMem(result.buffer, pflag);
+  result.size := sz;
+  result.attributes:= attr;
+
+  if supportsInterOp then begin
+    {$ifdef MSWINDOWS}
+    memHandleInfo.sType      := VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
+    memHandleInfo.pNext      := nil;
+    memHandleInfo.memory     := result.memory;
+    memHandleInfo.handleType := VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
+    SAFE_CALL(vkGetMemoryWin32HandleKHR(device, @memHandleInfo, @result.handle));
+    {$else}
+    memHandleInfo.sType      := VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
+    memHandleInfo.pNext      := nil;
+    memHandleInfo.memory     := result.memory;
+    memHandleInfo.handleType := VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+    SAFE_CALL(vkGetMemoryFdKHR(device, @memHandleInfo, @result.fd));
+    {$endif}
+  end;
 end;
 
 procedure TVulkanCompute.freeMemory(const mem: TVulkanMemory);
@@ -718,15 +1067,18 @@ var
 begin
   assert(assigned(aData));
   if N<0 then N := mem.size;
-  Assert((not CommandBufferStarted) or (N<$10000), 'ERROR [PushtoDevice] : buffer is too big to push to device during command record state!, retry after calling EndCommandBuffer()');
+  //Assert((not CommandBufferStarted) or (N<$10000), 'ERROR [PushtoDevice] : buffer is too big to push to device during command record state!, retry after calling EndCommandBuffer()');
 
-  if CommandBufferStarted then begin
+  if CommandBufferStarted and (N<$10000) then begin
+    // works only if N is less than (0x10000) 65536 bytes
+    // offset and dataSize must be multiples of 4
+    // buffers must be created with VK_BUFFER_USAGE_TRANSFER_DST_BIT
     vkCmdUpdateBuffer(cmd.Buffers[0], mem.buffer, 0, N, aData);
     //cmdInfo:= default(VkCommandBufferBeginInfo);
     //cmdInfo.sType:= VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     //SAFE_CALL(vkBeginCommandBuffer(cmdBuffer, ))
   end else
-  if mem.isStaging then begin
+  if not (maDevice in mem.attributes) then begin
     d := mapMemory(mem);
     move(aData^, d^, N);
     unMapMemory(mem);
@@ -751,7 +1103,7 @@ var d : pointer;
 begin
   assert(assigned(aData));
   if N<0 then N := mem.size;
-  if mem.isStaging then begin
+  if not (maDevice in mem.attributes) then begin
     d := mapMemory(mem);
     move(d^, aData^, N);
     unMapMemory(mem);
@@ -760,7 +1112,7 @@ begin
     cmdStarted := commandBufferStarted;
     if not cmdStarted then
       beginCommadBuffer;
-    copyBuffer(mem, stagingMem, N);
+    copyBuffer(mem, stagingMem);
     endCommandBuffer;
     finish;
     d := mapMemory(stagingMem);
@@ -772,17 +1124,28 @@ begin
   end;
 end;
 
-procedure TVulkanCompute.copyBuffer(const src, dst: TVulkanMemory;
-  const N: VkDeviceSize; const srcOffset: VkDeviceSize;
-  const dstOffset: VkDeviceSize);
+procedure TVulkanCompute.copyBuffer(const src, dst: TVulkanMemory);
 var bc:VkBufferCopy;
 begin
   assert(src.size=dst.size, 'ERROR [copyBuffer] : src and dst sizes are not equal.');
   // [TVulkanCompute.copyBuffer] todo check offset overflow also
-  bc.srcOffset := srcOffset;
-  bc.dstOffset := dstOffset;
-  bc.size      := src.size - srcOffset;
+  bc.srcOffset := 0;
+  bc.dstOffset := 0;
+  bc.size      := src.size;
   vkCmdCopyBuffer(cmd.Buffers[0], src.buffer, dst.buffer, 1, @bc);
+end;
+
+procedure TVulkanCompute.copyBuffer(const src, dst: TVulkanMemory; const aRegions: TArray<VkDeviceSize>);
+var i, j:longint;
+begin
+  assert(assigned(aRegions) and (length(aRegions) mod 3=0), 'ERROR [copyBuffer] : aRegions length must be multiples of 3.');
+  // [TVulkanCompute.copyBuffer] todo check offset overflow also
+  for i:=0 to (length(aRegions) div 3)-1 do begin
+    j := i*3;
+    assert(aRegions[j]+aRegions[j+2]<=src.size, format('ERROR [copyBuffer] : region [%d] source parameters out of bounds!',[i]));
+    assert(aRegions[j+1]+aRegions[j+2]<=dst.size, format('ERROR [copyBuffer] : region [%d] target parameters out of bounds!',[i]));
+  end;
+  vkCmdCopyBuffer(cmd.Buffers[0], src.buffer, dst.buffer, length(aRegions) div 3, pointer(aRegions));
 end;
 
 function TVulkanCompute.loadShader(const fileNameSpirV: RawByteString
@@ -944,11 +1307,19 @@ begin
         writes[j].descriptorType := VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[j].pBufferInfo := @bufInfo[j];
         inc(j)
-      end
-      else begin
+      end;
+      //atSingle, atInt32
+      atInt64, atUInt64, atDouble:begin
+        PInt64(@constArgs[k])^ := args[i].vInt64;
+        inc(k, 2)
+      end;
+      else
+      begin
         constArgs[k] := args[i].vInt32;
         inc(k)
       end;
+      //else
+      //  assert(false,'ERROR dispatchPipeline : unsupported datatype');
     end;
   end;
   vkCmdBindPipeline(cmd.Buffers[0], VK_PIPELINE_BIND_POINT_COMPUTE, vulkanPipelines[Op].pipeline);
@@ -979,6 +1350,7 @@ procedure TVulkanCompute.finish;
 var
   submitInfo:VkSubmitInfo;
 begin
+  endCommandBuffer;// will check if started and end it of so
   submitInfo := default(VkSubmitInfo);
   submitInfo.sType := VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submitInfo.commandBufferCount:=1;
@@ -1312,6 +1684,34 @@ end;
 //  result := abs(single(x));
 //end;
 
+function array_sum_abs_diff(const N: longword; const a, b: Pnfloat): single;
+var i:longword;
+begin
+  assert(assigned(a) and assigned(b));
+  result :=0;
+  for i:=0 to N-1 do
+    result := result + abs(single(a[i]-b[i]));
+end;
+
+function array_sum_abs_diff(const a, b: TArray<nfloat>): single;
+begin
+  result := array_sum_abs_diff(length(a), pointer(a), pointer(b))
+end;
+
+function array_max_abs_diff(const N: longword; const a, b: Pnfloat): single;
+var i:longword;
+begin
+  assert(assigned(a) and assigned(b));
+  result :=0;
+  for i:=0 to N-1 do
+    result := math.max(abs(single(a[i]-b[i])), result);
+end;
+
+function array_max_abs_diff(const a, b: TArray<nfloat>): single;
+begin
+  result := array_max_abs_diff(min(length(a), length(b)), pointer(a), pointer(b))
+end;
+
 procedure array_print_diff(const N:longword; const a,b:Pnfloat; const Eps: single=0.000001); overload;
 const EPSILON = 0.0001;
 var
@@ -1347,7 +1747,7 @@ begin
   array_fma(length(x), a, b, pointer(x), pointer(y))
 end;
 
-{$ifdef CPUX64}
+{$ifdef _CPUX64}
 
 procedure saxpy_avx2(const N:longword; const a:single; const X, Y:Psingle);assembler;{$ifdef fpc}nostackframe;{$endif}
 asm
@@ -1512,61 +1912,52 @@ end;
 
 {$endif}
 
-type
-  blasint = longint;
-  CBLAS_Layout = (CblasRowMajor = 101, CblasColMajor = 102);
-//{$else}
-//const
-//  CblasRowMajor = CBLAS_Layout.CblasRowMajor;
-//  CblasColMajor = CBLAS_Layout.CblasColMajor;
-//{$endif}
+//type
+//  blasint = longint;
+//  CBLAS_Layout = (CblasRowMajor = 101, CblasColMajor = 102);
+//  CBLAS_ORDER = CBLAS_Layout;
+//  CBLAS_TRANSPOSE = (CblasNoTrans = 111, CblasTrans = 112, CblasConjTrans = 113, CblasConjNoTrans = 114);
+//procedure cblas_sgemm(Order:CBLAS_ORDER; TransA:CBLAS_TRANSPOSE; TransB:CBLAS_TRANSPOSE; M:blasint; N:blasint; K:blasint; alpha:single; A:Psingle; lda:blasint; B:Psingle; ldb:blasint; beta:single; C:Psingle; ldc:blasint); winapi ; external 'libopenblas.dll';
 
-//{$if not declared(CBLAS_ORDER)}
-type
-  CBLAS_ORDER = CBLAS_Layout;
-//{$endif}
-//{$if not declared(CBLAS_TRANSPOSE)}
-type
-  CBLAS_TRANSPOSE = (CblasNoTrans = 111, CblasTrans = 112, CblasConjTrans =
-    113, CblasConjNoTrans = 114);
-
-{$if not defined(cblas_sgemm)}
-procedure cblas_sgemm(Order:CBLAS_ORDER; TransA:CBLAS_TRANSPOSE; TransB:CBLAS_TRANSPOSE; M:blasint; N:blasint; K:blasint; alpha:single; A:Psingle; lda:blasint; B:Psingle; ldb:blasint; beta:single; C:Psingle; ldc:blasint); winapi ; external 'libopenblas.dll';
-{$endif}
 
 {$T+}
 procedure array_gemm_nn(const M,N,K : longword; const ALPHA:single; const A:TArray<nfloat>; const lda:longword; const B:TArray<nfloat>; const ldb:longword; const BETA:single; const C:TArray<nfloat>; const ldc:longword); overload;
 begin
-  cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, M, N, K, ALPHA, pnfloat(A), lda, pnfloat(B), ldb, BETA, pnfloat(C), ldc);
+  TQNNSingleOPS.cblas_sgemm(CBLAS_Layout.CblasRowMajor, CBLAS_TRANSPOSE.CblasNoTrans, CBLAS_TRANSPOSE.CblasNoTrans, M, N, K, ALPHA, pnfloat(A), lda, pnfloat(B), ldb, BETA, pnfloat(C), ldc);
 end;
 
 procedure array_gemm_nt(const M,N,K : longword; const ALPHA:single; const A:TArray<nfloat>; const lda:longword; const B:TArray<nfloat>; const ldb:longword; const BETA:single; const C:TArray<nfloat>; const ldc:longword); overload;
 begin
-  cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, M, N, K, ALPHA, pnfloat(A), lda, pnfloat(B), ldb, BETA, pnfloat(C), ldc)
+  TQNNSingleOPS.cblas_sgemm(CBLAS_Layout.CblasRowMajor, CBLAS_TRANSPOSE.CblasNoTrans, CBLAS_TRANSPOSE.CblasTrans, M, N, K, ALPHA, pnfloat(A), lda, pnfloat(B), ldb, BETA, pnfloat(C), ldc)
 end;
 
 procedure array_gemm_tn(const M,N,K : longword; const ALPHA:single; const A:TArray<nfloat>; const lda:longword; const B:TArray<nfloat>; const ldb:longword; const BETA:single; const C:TArray<nfloat>; const ldc:longword); overload;
 begin
-  cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans, M, N, K, ALPHA, pnfloat(A), lda, pnfloat(B), ldb, BETA, pnfloat(C), ldc)
+  TQNNSingleOPS.cblas_sgemm(CBLAS_Layout.CblasRowMajor, CBLAS_TRANSPOSE.CblasTrans, CBLAS_TRANSPOSE.CblasNoTrans, M, N, K, ALPHA, pnfloat(A), lda, pnfloat(B), ldb, BETA, pnfloat(C), ldc)
 end;
 {$T-}
 
 var FPUMask : TFPUExceptionMask;
 
+  i : longint;
 initialization
   //assert(SetEnvironmentVariableA('VK_LAYER_PRINTF_ONLY_PRESET', '1'), 'Cannot set Vulkan ENV for debugging!');
   //assert(SetEnvironmentVariableA('VK_LAYER_PRINTF_ENABLE ', '1'), 'Cannot set Vulkan ENV for debugging!');
   //assert(SetEnvironmentVariableA('VK_LAYER_PRINTF_TO_STDOUT', '1'), 'Cannot set Vulkan ENV for debugging!');
 
-
   FPUMask := GetExceptionMask;
   SetExceptionMask([exInvalidOp] + FPUMask);
   TVulkanCompute.CreateInstance(ExtractFileName(paramStr(0)));
   TVulkanCompute.VulkanDevices := TVulkanCompute.QueryPhysicalDevices();
+  if isConsole then
+    for i:=0 to high(TVulkanCompute.VulkanDevices) do
+      writeln(i, ' ',TVulkanCompute.VulkanDevices[i].deviceProperties.properties.deviceName);
   //SetExceptionMask(FPUMask);
 
 
 finalization
+  //vkGetMemoryWin32HandleKHR := nil;
+  //UnloadLibrary(vklib);
   TVulkanCompute.DestroyInstance();
 
 end.

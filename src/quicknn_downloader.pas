@@ -54,6 +54,50 @@ const
     ]
   ];
 
+  //BLF_NAME_SPACE                                     = 'black-forest-labs';
+  FLUX2_KLEIN_9B_DISTILLED_REPO_NAME                 = 'FLUX.2-klein-9B';    // black-forest-labs
+  FLUX2_KLAIN_9B_REPO_PATHS : TArray<string>         = [
+                                                             '.',
+                                                             'scheduler',
+                                                             'text_encoder',
+                                                             'tokenizer',
+                                                             'transformer',
+                                                             'vae'
+                                                         ];
+
+  FLUX2_KLEIN_9B_REPO_FILES : TArray<TArray<string>> = [
+    ['model_index.json'],
+    ['scheduler_config.json'],
+    [
+      'config.json',
+      'generation_config.json' ,
+      'model-00001-of-00004.safetensors' ,
+      'model-00002-of-00004.safetensors' ,
+      'model-00003-of-00004.safetensors' ,
+      'model-00004-of-00004.safetensors' ,
+      'model.safetensors.index.json'
+    ],
+    [
+      'added_tokens.json',
+      'chat_template.jinja',
+      'merges.txt',
+      'special_tokens_map.json',
+      'tokenizer.json',
+      'tokenizer_config.json',
+      'vocab.json'
+    ],
+    [
+      'config.json',
+      'diffusion_pytorch_model-00001-of-00002.safetensors',
+      'diffusion_pytorch_model-00002-of-00002.safetensors',
+      'diffusion_pytorch_model.safetensors.index.json'
+    ],
+    [
+      'config.json',
+      'diffusion_pytorch_model.safetensors'
+    ]
+  ];
+
   TONGYIMAI_NAME_SPACE                                     = 'Tongyi-MAI';
   ZIMAGE_TURBO_REPO_NAME                                   = 'Z-Image-Turbo';
   ZIMAGE_REPO_PATHS : TArray<string>                            = [
@@ -113,7 +157,7 @@ type
     file_names   : TArray<TArray<string>>;
     src_paths    : TArray<string>;
     dst_paths    : TArray<string>;
-
+    api_key : widestring;
     //FCanceled : boolean;
     FSubReceived, FSubTotal, FReceived, FTotal:int64;
     OnProgress : procedure (const subProg, subTotal, progress, total:int64) of object;
@@ -290,6 +334,7 @@ begin
         //fSize := getfileSize(curDir+ENCODER_DIR + '/' + currentFile);
         if isConsole then
           writeln('Downloading ... ', file_names[j][i]);
+        FHttp.bearer:=api_key;
         Fhttp.Download(format(HTTP_ROOT, [namespace, repo]) + subDir + '/' + currentFile + HF_DOWNLOAD_ARG, curDir + subDir + '/' + currentFile);
       end;
     end;

@@ -11,6 +11,7 @@ uses
   {$ifdef FPC}
   {$ifdef MSWINDOWS}
   , WinHTTP
+  , Dialogs
   {$else}
   , opensslsockets
   , fpHTTPClient
@@ -46,9 +47,11 @@ type
     FURI : URL_COMPONENTS;
     FResponseHeaders : TStringList;
     FTerminated : boolean;
+    class procedure statusCallback(hInterneth: HINTERNET; dwContext: UIntPtr; dwInternetStatus: longword; lpvStatusInformation: pointer; dwStatusInformationLength: longword);static;WINAPI;
   public
     OnDataReceived : procedure (Sender: TObject; const AContentLength, AReadCount: Int64) of object;
     OnHeaders : TNotifyEvent;
+    bearer : widestring;
     constructor Create;
     function ResponseHeaders:TStrings;
     class function getHeader(Headers: TStrings; const aName:string):string;
@@ -79,6 +82,7 @@ type
     FCurrentURL, FCurrentFile:string;
   public
     Method : TNHttpMethod;
+    bearer : widestring;
     OnReceive : procedure (Sendert:TObject; const received, total:int64) of object;
     {$ifdef FPC}
     procedure FReceiveData(Sender: TObject; const AContentLength, AReadCount: Int64);
@@ -360,6 +364,14 @@ begin
   end;
 end;
 
+class procedure TWinHTTP.statusCallback(hInterneth: HINTERNET;
+  dwContext: UIntPtr; dwInternetStatus: longword;
+  lpvStatusInformation: pointer; dwStatusInformationLength: longword); WINAPI;
+var status : longword;
+begin
+  //sleep(1)//
+end;
+
 constructor TWinHTTP.Create;
 var USER_AGENT : widestring;
 begin
@@ -396,11 +408,13 @@ var
   res : HINTERNET;
   iSize, iReceived : longword;
   iContentLength, iProgress: int64;
-  pURL: LPCWSTR;
+  pURL, pHeader: LPCWSTR;
   head : widestring;
   data:rawbytestring;
-  atrHost, strObj, strExtra:wideString;
+  strHost, strObj, strExtra, status:wideString;
   _flag :longword;
+  prevStatus: WINHTTP_STATUS_CALLBACK;
+  hdrLen: SizeInt;
 begin
   FTerminated := false;
   FillChar(FURI, sizeof(FURI), #0);
@@ -410,6 +424,9 @@ begin
   FURI.dwExtraInfoLength := DWORD(-1);
   FURI.dwStructSize:=sizeOf(FURI);
   pURL := LPCWSTR(AURL);
+  head := 'Authorization: Bearer '+bearer;
+  pHeader := LPCWSTR(head);
+  hdrLen := lstrlenW(pHeader);
   Assert(WinHttpCrackUrl(pURL, wcslen(pURL), 0, @FURI), 'Failed WinHttpCrackUrl ' + WinHttpErrorToStr(GetLastError));
   try
 
@@ -421,22 +438,44 @@ begin
 
     FConnect := WinHttpConnect(FSession, LPCWSTR(copy(FURI.lpszHostName,0,FURI.dwHostNameLength)), FURI.nPort, 0);
     Assert(assigned(FConnect), 'Failed WinHttpConnect ' +WinHttpErrorToStr(GetLastError));
-    FRequest :=  WinHttpOpenRequest(FConnect, LPCWSTR(AMethod), FURI.lpszUrlPath, nil, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    prevStatus :=  WinHttpSetStatusCallback(FConnect, statusCallback, WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS, 0);
+
+    FRequest :=  WinHttpOpenRequest(FConnect, LPCWSTR(AMethod), FURI.lpszUrlPath, nil, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE or WINHTTP_FLAG_NULL_CODEPAGE);
     Assert(assigned(FRequest), 'Failed WinHttpOpenRequest '+WinHttpErrorToStr(GetLastError));
-    Assert(WinHttpSendRequest(FRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0), 'Failed WinHttpSendRequest '+ WinHttpErrorToStr(GetLastError));
+    hdrLen:=length(pHeader);
+    Assert(WinHttpSendRequest(FRequest, pHeader{WINHTTP_NO_ADDITIONAL_HEADERS}, length(pHeader), WINHTTP_NO_REQUEST_DATA, 0, longword(-1), 0), 'Failed WinHttpSendRequest '+ WinHttpErrorToStr(GetLastError));
     Assert(WinHttpReceiveResponse(FRequest, nil), 'Failed WinHttpReceiveResponse '+ WinHttpErrorToStr(GetLastError));
 
+    //_flag := 0;
+    //Assert(WinHttpQueryHeaders(FRequest, WINHTTP_QUERY_AUTHORIZATION, nil, nil, @_flag, WINHTTP_NO_HEADER_INDEX), 'Failed WinHttpQueryHeaders '+ WinHttpErrorToStr(GetLastError));
+    //setLength(head, _flag*2);
+    //Assert(WinHttpQueryHeaders(FRequest, WINHTTP_QUERY_AUTHORIZATION, nil, @head[1], @hdrLen, WINHTTP_NO_HEADER_INDEX), 'Failed WinHttpQueryHeaders '+ WinHttpErrorToStr(GetLastError));
+
     _flag := 0;
+    WinHttpQueryHeaders(FRequest, WINHTTP_QUERY_STATUS_CODE, nil, nil , @_flag, WINHTTP_NO_HEADER_INDEX);
+    setLength(status, _flag div 2-1);
+    WinHttpQueryHeaders(FRequest, WINHTTP_QUERY_STATUS_CODE, nil, @status[1] , @_flag, WINHTTP_NO_HEADER_INDEX);
+
+    if status[1] = '4' then begin// authorization error
+      FTerminated := true;
+      assert(false, 'Access restricted!, please provide the correct API key!');
+    end;
+
+    _flag :=0;
     WinHttpQueryHeaders(FRequest, WINHTTP_QUERY_RAW_HEADERS_CRLF, nil, nil , @_flag, WINHTTP_NO_HEADER_INDEX);
     head := '';
     setLength(head, _flag div 2);
     if _flag>0 then begin
       assert(WinHttpQueryHeaders(FRequest, WINHTTP_QUERY_RAW_HEADERS_CRLF, nil, @head[1], @_flag, WINHTTP_NO_HEADER_INDEX), 'WinHttpQueryHeaders ' + WinHttpErrorToStr(getLastError()));
       FResponseHeaders.text := head;
+      ShowMessage(head);
       if assigned(OnHeaders) then OnHeaders(Self);
     end;
     iContentLength :=0;
     iProgress := 0;
+    if FResponseHeaders.indexof('content-length')>=0 then
+      tryStrToInt64(FResponseHeaders.Values['content-length'], iContentLength);
+
     if FResponseHeaders.indexof('content-length')>=0 then
       tryStrToInt64(FResponseHeaders.Values['content-length'], iContentLength);
 
@@ -565,6 +604,7 @@ begin
   FRunning := 0;
   try
     // todo TNHttp [Download] is a get method, add other methods
+    FHTTP.bearer:=bearer;
     FHTTP.get(aURL, fs);
   finally
     freeAndNil(fs);
@@ -595,6 +635,7 @@ begin
 end;
 
 constructor TNHttp.Create;
+var hf:ansistring;
 begin
   {$ifdef FPC}
   {$ifdef MSWINDOWS}

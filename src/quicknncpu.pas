@@ -80,6 +80,11 @@ uses
 // Scale and Bias terms used for vector Scalar element wise operations
 type
 
+  CBLAS_Layout = quicknn_common.CBLAS_Layout;
+  CBLAS_ORDER = quicknn_common.CBLAS_Layout;
+  CBLAS_TRANSPOSE = quicknn_common.CBLAS_TRANSPOSE;
+
+
 { TQNNSingleOPS }
 
   TQNNSingleOPS = class
@@ -1998,11 +2003,11 @@ begin
       for kernel_col := 0 to kernelWidth - 1 do
         begin
           //fillChar(d_col^, output_w*output_h*sizeOf(single), #0);
-          input_row := -padHeight + kernel_row * dilationY;
+          input_row := -padHeight{temp} + kernel_row * dilationY;
           for output_row := 0 to output_h - 1 do  begin
             if (NativeUInt(input_row) < NativeUInt(aHeight)) then begin
-              input_col := -padWidth + kernel_col * dilationX;
-              if (strideX=1) then begin
+              input_col := -padWidth{temp} + kernel_col * dilationX;
+              if (strideX=1) {and (dilationX=1)} then begin
                 //fillchar(d_col[0], output_w*SizeOf(d_col^), #0);
                 move(d_im[input_row*aWidth + ord(input_col>=0)*input_col], d_col[ord(input_col<0)*abs(input_col)], (output_w-abs(input_col))*sizeof(d_col^));
               end
@@ -2024,6 +2029,7 @@ begin
   {$ifdef FPC}
 begin
   {$endif}
+
   output_w := (aWidth + 2 * padWidth - (dilationX * (kernelWidth - 1) + 1)) div strideX + 1;
   output_h := (aHeight + 2 * padHeight - (dilationY * (kernelHeight - 1) + 1)) div strideY + 1;
   channel_size := aHeight * aWidth;
@@ -2254,7 +2260,7 @@ begin
           end
     end;
     col.free;
-    col2.free;
+    //col2.free;
 {$endif}
 end;
 
@@ -4637,18 +4643,18 @@ initialization
         TQNNSingleOPS.cblas_sscal := cblas_sscal  ;
         TQNNSingleOPS.isUsingBlas := true;
   {$else}
-  //hBLASLib := LoadLibrary(blaslib);
-  //if hBLASLib=0 then
-  //  hBLASLib:=LoadLibrary('lib'+blaslib);
-  //if hBLASLib=0 then
-  //  hBLASLib:=LoadLibrary('lib'+blaslib+'.0');
-  //
-  //if hBLASLib=0 then
-  //  hBLASLib:=LoadLibrary(blaslib64);
-  //if hBLASLib=0 then
-  //  hBLASLib:=LoadLibrary('lib'+blaslib64);
-  //if hBLASLib=0 then
-  //  hBLASLib:=LoadLibrary('lib'+blaslib64+'.0');
+  hBLASLib := LoadLibrary(blaslib);
+  if hBLASLib=0 then
+    hBLASLib:=LoadLibrary('lib'+blaslib);
+  if hBLASLib=0 then
+    hBLASLib:=LoadLibrary('lib'+blaslib+'.0');
+
+  if hBLASLib=0 then
+    hBLASLib:=LoadLibrary(blaslib64);
+  if hBLASLib=0 then
+    hBLASLib:=LoadLibrary('lib'+blaslib64);
+  if hBLASLib=0 then
+    hBLASLib:=LoadLibrary('lib'+blaslib64+'.0');
 
   if (hBLASLib>0) then begin
     TQNNSingleOPS.cblas_sgemm   := getProcAddress(hBLASLib, 'cblas_sgemm');

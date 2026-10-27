@@ -12,9 +12,9 @@ unit mainUnit;
 interface
 
 uses
-  Classes, SysUtils, Types, LCLType, Forms, Controls, Graphics, Dialogs, ExtCtrls, StdCtrls,
+  Classes, SysUtils, Types, LCLType, LMessages, Forms, Controls, Graphics, Dialogs, ExtCtrls, StdCtrls,
   Buttons, ComCtrls, Spin, ExtDlgs, Menus, quicknn_transformers,
-  quicknn_common, quicknn_vae, quicknn_flux, quicknn_zimage, quicknn_downloader, LMessages;
+  quicknn_common, quicknn_vae, quicknn_flux, quicknn_zimage, quicknn_downloader, quicknn_vulkan;
 
 type
 
@@ -301,6 +301,7 @@ type
     memoNegPrompt: TMemo;
     MenuItem1: TMenuItem;
     MenuItem2: TMenuItem;
+    mnuDL3: TMenuItem;
     mnuDLOpenBLAS: TMenuItem;
     mnuDL1: TMenuItem;
     mnuDL2: TMenuItem;
@@ -348,6 +349,7 @@ type
     procedure MenuItem2Click(Sender: TObject);
     procedure mnuDL1Click(Sender: TObject);
     procedure mnuDL2Click(Sender: TObject);
+    procedure mnuDL3Click(Sender: TObject);
     procedure mnuDLOpenBLASClick(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
   private
@@ -396,7 +398,8 @@ const
   DWMWA_REDIRECTIONBITMAP_ALPHA = 39;
   DWMWA_BORDER_MARGINS = 40;
   DWMWA_SYSTEMBACKDROP_TYPE = 38;
-
+  DWMWA_BORDER_COLOR    = 34;
+  DWMWA_CAPTION_COLOR   = 35;
 
   DWMSBT_AUTO = 0;
   DWMSBT_NONE = 1;
@@ -2020,6 +2023,28 @@ begin
     pnlDL.Hide;
   end;
 
+end;
+
+procedure TMainForm.mnuDL3Click(Sender: TObject);
+begin
+  try
+    model := TQNNDownloader.Create(
+      BLF_NAME_SPACE,
+      FLUX2_KLEIN_9B_DISTILLED_REPO_NAME,
+      FLUX2_KLAIN_9B_REPO_PATHS,
+      FLUX2_KLEIN_9B_REPO_FILES
+    );
+    subDL.Position:=0;
+    totalDL.Position:=0;
+    pnlDL.Show;
+    Application.ProcessMessages;
+    model.OnProgress:=OnDownload;
+    model.api_key := 'YOUR HUGGINGFACE API_KEY';
+    model.download(appPath+MODELS_DIR);
+    model.Free();
+  finally
+    pnlDL.Hide;
+  end;
 end;
 
 procedure TMainForm.mnuDLOpenBLASClick(Sender: TObject);
